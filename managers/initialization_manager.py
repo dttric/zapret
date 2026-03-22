@@ -1,5 +1,7 @@
 # managers/initialization_manager.py
 
+import threading
+
 from PyQt6.QtCore import QTimer, QThread, QObject, pyqtSignal
 from log import log
 
@@ -38,16 +40,17 @@ class InitializationManager:
         - DPI Controller → управление DPI
         - Меню и сигналы → UI готов к взаимодействию
         
-        ФАЗА 2 (60-100ms): Менеджеры (параллельно где возможно)
+        ФАЗА 2 (50-300ms): Менеджеры ядра и быстрые UI-зависимости
         - Core: DPI Manager, Process Monitor
-        - Network: Discord, Hosts, DNS
         - Content: Strategy Manager
         - Theme: ThemeManager (асинхронная генерация CSS)
-        
-        ФАЗА 3 (100-200ms): Фоновые сервисы
-        - Tray, Logger, Update Manager
-        
-        ФАЗА 4 (200+ms): Отложенные проверки
+        - Service: автозапуск/службы
+
+        ФАЗА 3 (600ms+): Idle-инициализация тяжёлых/необязательных менеджеров
+        - Network: Discord, Hosts, DNS
+        - Tray, Logger, прогрев кэша
+
+        ФАЗА 4 (1800ms+): Отложенные фоновые проверки
         - Hostlists, IPsets (не критичны для UI)
         - Подписка
         """
@@ -70,29 +73,29 @@ class InitializationManager:
         # ═══════════════════════════════════════════════════════════════
         init_tasks.extend([
             (50,  self._init_core_managers),      # DPI, Process Monitor
-            (60,  self._init_network_managers),   # Discord, Hosts, DNS
             (70,  self._init_strategy_manager),   # Стратегии (локально)
-            (80,  self._init_theme_manager),      # Тема (асинхронно)
-            (90,  self._init_service_managers),   # Service, Update
+            (90,  self._init_theme_manager),      # Тема (асинхронно)
+            (220, self._init_service_managers),   # Service, Update
         ])
         
         # ═══════════════════════════════════════════════════════════════
         # ФАЗА 3: Фоновые сервисы (не критичны для UI)
         # ═══════════════════════════════════════════════════════════════
         init_tasks.extend([
-            (100, self._init_tray),               # Системный трей
-            (120, self._init_strategy_cache),     # Прогрев кэша стратегий
-            (150, self._init_logger),             # Логирование
-            (200, self._finalize_managers_init),  # Финализация
+            (300, self._finalize_managers_init),  # Финализация
+            (600, self._init_network_managers),   # Discord, Hosts, DNS (idle)
+            (900, self._init_tray),               # Системный трей (idle)
+            (1500, self._init_logger),            # Логирование (idle)
+            (1700, self._init_strategy_cache),    # Отложенный прогрев кэша
         ])
         
         # ═══════════════════════════════════════════════════════════════
         # ФАЗА 4: Отложенные проверки (могут быть медленными)
         # ═══════════════════════════════════════════════════════════════
         init_tasks.extend([
-            (300,  self._init_hostlists_check),   # Проверка hostlists
-            (400,  self._init_ipsets_check),      # Проверка ipsets
-            (2000, self._init_subscription_check),# Проверка подписки (сеть)
+            (1800, self._init_hostlists_check),   # Проверка hostlists (в фоне)
+            (2000, self._init_ipsets_check),      # Проверка ipsets (в фоне)
+            (12000, self._init_subscription_check),# Проверка подписки (сеть, отложено)
         ])
 
         for delay, task in init_tasks:
@@ -107,36 +110,19 @@ class InitializationManager:
     # ───────────────────────── инициализация подсистем ───────────────────────
 
     def _init_strategy_manager(self):
-        """Быстрая синхронная инициализация Strategy Manager (локально)"""
-        try:
-            # ВАЖНО: импортируем из 'strategy_menu.bat_zapret1_manager', чтобы избежать побочных эффектов
-            from strategy_menu.bat_zapret1_manager import BatZapret1Manager
-            from config import STRATEGIES_FOLDER, INDEXJSON_FOLDER
-            import os
-
-            os.makedirs(STRATEGIES_FOLDER, exist_ok=True)
-
-            self.app.strategy_manager = BatZapret1Manager(
-                local_dir=STRATEGIES_FOLDER,
-                json_dir=INDEXJSON_FOLDER,
-                status_callback=self.app.set_status,
-                preload=False
-            )
-            # Работаем только с локальными стратегиями на старте
-            self.app.strategy_manager.local_only_mode = True
-
-            log("Strategy Manager инициализирован (без загрузки из интернета)", "INFO")
-            self.init_tasks_completed.add('strategy_manager')
-
-        except Exception as e:
-            log(f"Ошибка инициализации Strategy Manager: {e}", "❌ ERROR")
-            self.app.set_status(f"Ошибка: {e}")
+        """Stub: BAT strategy manager removed — preset-based zapret1 replaces it."""
+        # BatZapret1Manager was only used for .bat file strategy management.
+        # Zapret1 now uses the preset_zapret1 module for strategy management.
+        self.app.strategy_manager = None
+        log("Strategy Manager (BAT) отключён — используется preset_zapret1", "DEBUG")
+        self.init_tasks_completed.add('strategy_manager')
 
     def _init_strategy_cache(self):
         """Прогрев кэша стратегий для быстрого открытия вкладок"""
         try:
             from strategy_menu import get_direct_strategy_selections
             from strategy_menu.strategies_registry import registry
+            from strategy_menu import get_strategy_launch_method
 
             # Прогреваем кэш отсортированных ключей
             registry.get_all_category_keys_sorted()
@@ -145,6 +131,41 @@ class InitializationManager:
             get_direct_strategy_selections()
 
             log("Кэш стратегий прогрет", "DEBUG")
+
+            # ✅ Важно для direct_zapret2: обновить отображение текущей стратегии на старте.
+            # Иначе на главной/управлении может остаться "Не выбрана" до первого клика в стратегиях.
+            try:
+                method = get_strategy_launch_method()
+
+                # Убедимся, что preset файлы существуют до расчёта summary.
+                if method == "direct_zapret2":
+                    from preset_zapret2 import ensure_default_preset_exists
+                    if not ensure_default_preset_exists():
+                        log(
+                            "direct_zapret2: не удалось подготовить preset-zapret2.txt (нет %APPDATA%/zapret/presets_v2_template/Default.txt)",
+                            "ERROR",
+                        )
+                elif method == "direct_zapret2_orchestra":
+                    from preset_orchestra_zapret2 import ensure_default_preset_exists
+                    if not ensure_default_preset_exists():
+                        log(
+                            "direct_zapret2_orchestra: не удалось подготовить preset-zapret2-orchestra.txt (нет шаблона Default)",
+                            "ERROR",
+                        )
+                elif method == "direct_zapret1":
+                    from preset_zapret1 import ensure_default_preset_exists_v1
+                    if not ensure_default_preset_exists_v1():
+                        log("direct_zapret1: не удалось подготовить preset-zapret1.txt", "ERROR")
+
+                if method == "orchestra":
+                    initial_name = getattr(self.app, "current_strategy_name", None) or "Оркестр"
+                else:
+                    initial_name = getattr(self.app, "current_strategy_name", None) or "Прямой запуск"
+
+                if hasattr(self.app, "update_current_strategy_display"):
+                    self.app.update_current_strategy_display(initial_name)
+            except Exception as e:
+                log(f"Ошибка обновления текущей стратегии на старте: {e}", "DEBUG")
 
         except Exception as e:
             log(f"Ошибка прогрева кэша стратегий: {e}", "WARNING")
@@ -161,8 +182,40 @@ class InitializationManager:
             winws_exe = get_winws_exe_for_method(launch_method)
             if is_zapret2_mode(launch_method):
                 log(f"Используется winws2.exe для режима {launch_method} (Zapret 2)", "INFO")
+                # Ensure default preset exists for direct_zapret2 mode
+                if launch_method == "direct_zapret2":
+                    from preset_zapret2 import ensure_default_preset_exists
+                    if not ensure_default_preset_exists():
+                        log(
+                            "direct_zapret2: не удалось подготовить preset-zapret2.txt (нет %APPDATA%/zapret/presets_v2_template/Default.txt)",
+                            "ERROR",
+                        )
+                        try:
+                            self.app.set_status("Ошибка: отсутствует Default.txt (built-in пресет)")
+                        except Exception:
+                            pass
+                elif launch_method == "direct_zapret2_orchestra":
+                    from preset_orchestra_zapret2 import ensure_default_preset_exists
+                    if not ensure_default_preset_exists():
+                        log(
+                            "direct_zapret2_orchestra: не удалось подготовить preset-zapret2-orchestra.txt (нет шаблона Default)",
+                            "ERROR",
+                        )
+                        try:
+                            self.app.set_status("Ошибка: отсутствует Default шаблон оркестра")
+                        except Exception:
+                            pass
             else:
-                log("Используется winws.exe для BAT режима (Zapret 1)", "INFO")
+                log(f"Используется winws.exe для режима {launch_method}", "INFO")
+                # Ensure default preset exists for direct_zapret1 mode
+                if launch_method == "direct_zapret1":
+                    from preset_zapret1 import ensure_default_preset_exists_v1
+                    if not ensure_default_preset_exists_v1():
+                        log("direct_zapret1: не удалось подготовить preset-zapret1.txt", "ERROR")
+                        try:
+                            self.app.set_status("Ошибка: не удалось создать preset-zapret1.txt")
+                        except Exception:
+                            pass
 
             self.app.dpi_starter = BatDPIStart(
                 winws_exe=winws_exe,
@@ -192,34 +245,45 @@ class InitializationManager:
                     log(f"Ошибка при обновлении UI (fallback): {e}", "❌ ERROR")
 
     def _init_hostlists_check(self):
-        """Синхронная проверка и создание хостлистов"""
-        try:
-            log("🔧 Начинаем проверку хостлистов", "DEBUG")
-            from utils.hostlists_manager import startup_hostlists_check
-            result = startup_hostlists_check()
-            if result:
-                log("✅ Хостлисты проверены и готовы", "SUCCESS")
-            else:
-                log("⚠️ Проблемы с хостлистами, создаем минимальные", "WARNING")
-            self.init_tasks_completed.add('hostlists')
-        except Exception as e:
-            log(f"❌ Ошибка проверки хостлистов: {e}", "ERROR")
+        """Фоновая проверка и создание хостлистов (не блокирует GUI)."""
+
+        def _worker() -> None:
+            try:
+                log("🔧 Начинаем проверку хостлистов (background)", "DEBUG")
+                from utils.hostlists_manager import startup_hostlists_check
+
+                result = startup_hostlists_check()
+                if result:
+                    log("✅ Хостлисты проверены и готовы", "SUCCESS")
+                else:
+                    log("⚠️ Проблемы с хостлистами, создаем минимальные", "WARNING")
+                self.init_tasks_completed.add('hostlists')
+            except Exception as e:
+                log(f"❌ Ошибка проверки хостлистов: {e}", "ERROR")
+
+        threading.Thread(target=_worker, daemon=True, name="HostlistsCheckWorker").start()
 
     def _init_ipsets_check(self):
-        """Синхронная проверка IPsets"""
-        try:
-            log("🔧 Начинаем проверку IPsets", "DEBUG")
-            from utils.ipsets_manager import startup_ipsets_check
-            result = startup_ipsets_check()
-            if result:
-                log("✅ IPsets проверены и готовы", "SUCCESS")
-            else:
-                log("⚠️ Проблемы с IPsets, создаем минимальные", "WARNING")
-            self.init_tasks_completed.add('ipsets')
-        except Exception as e:
-            log(f"❌ Ошибка проверки IPsets: {e}", "ERROR")
-            import traceback
-            log(traceback.format_exc(), "DEBUG")
+        """Фоновая проверка IPsets (не блокирует GUI)."""
+
+        def _worker() -> None:
+            try:
+                log("🔧 Начинаем проверку IPsets (background)", "DEBUG")
+                from utils.ipsets_manager import startup_ipsets_check
+
+                result = startup_ipsets_check()
+                if result:
+                    log("✅ IPsets проверены и готовы", "SUCCESS")
+                else:
+                    log("⚠️ Проблемы с IPsets, создаем минимальные", "WARNING")
+                self.init_tasks_completed.add('ipsets')
+            except Exception as e:
+                log(f"❌ Ошибка проверки IPsets: {e}", "ERROR")
+                import traceback
+
+                log(traceback.format_exc(), "DEBUG")
+
+        threading.Thread(target=_worker, daemon=True, name="IPsetsCheckWorker").start()
 
     def _init_dpi_controller(self):
         """Инициализация DPI контроллера"""
@@ -234,103 +298,18 @@ class InitializationManager:
 
     def _init_menu(self):
         """Инициализация меню"""
+        # Alt-меню отключено: все настройки/ссылки перенесены в страницы интерфейса.
         try:
-            from altmenu.app_menubar import AppMenuBar
-            from PyQt6.QtWidgets import QWidget, QHBoxLayout
-            
-            self.app.menu_bar = AppMenuBar(self.app)
-            
-            # ✅ Добавляем меню под titlebar в отдельном контейнере
-            if hasattr(self.app, 'container') and self.app.container.layout():
-                # Создаем контейнер для меню (с явным родителем!)
-                menubar_widget = QWidget(self.app.container)  # ✅ Родитель = container
-                menubar_widget.setObjectName("menubarWidget")
-                menubar_widget.setFixedHeight(28)
-                menubar_widget.setStyleSheet("""
-                    QWidget#menubarWidget {
-                        background-color: rgba(20, 20, 20, 240);
-                        border-bottom: 1px solid rgba(80, 80, 80, 200);
-                    }
-                """)
-                
-                menubar_layout = QHBoxLayout(menubar_widget)
-                menubar_layout.setContentsMargins(8, 0, 8, 0)
-                menubar_layout.setSpacing(0)
-                
-                # Стилизуем menubar
-                self.app.menu_bar.setStyleSheet("""
-                    QMenuBar {
-                        background-color: transparent;
-                        color: #ffffff;
-                        border: none;
-                        padding: 0px;
-                        spacing: 0px;
-                        font-size: 11px;
-                        font-family: 'Segoe UI', Arial, sans-serif;
-                    }
-                    QMenuBar::item {
-                        background-color: transparent;
-                        color: #ffffff;
-                        padding: 4px 10px;
-                        border-radius: 4px;
-                        margin: 2px 1px;
-                    }
-                    QMenuBar::item:selected {
-                        background-color: #333333;
-                    }
-                    QMenuBar::item:pressed {
-                        background-color: #404040;
-                    }
-                    QMenu {
-                        background-color: #252525;
-                        border: 1px solid #3d3d3d;
-                        border-radius: 6px;
-                        padding: 4px;
-                    }
-                    QMenu::item {
-                        padding: 6px 24px 6px 12px;
-                        border-radius: 4px;
-                        color: #ffffff;
-                    }
-                    QMenu::item:selected {
-                        background-color: #333333;
-                    }
-                    QMenu::separator {
-                        height: 1px;
-                        background-color: #3d3d3d;
-                        margin: 4px 8px;
-                    }
-                """)
-                
-                menubar_layout.addWidget(self.app.menu_bar)
-                menubar_layout.addStretch()
-                
-                # Вставляем после titlebar (индекс 1)
-                container_layout = self.app.container.layout()
-                container_layout.insertWidget(1, menubar_widget)
-                
-                # Сохраняем ссылку для обновления стилей при смене темы
-                self.app.menubar_widget = menubar_widget
-                
-                log("Меню добавлено под titlebar", "INFO")
-            else:
-                # Fallback для старого поведения
-                if self.app.layout():
-                    self.app.layout().setMenuBar(self.app.menu_bar)
-                log("Меню инициализировано (fallback)", "INFO")
-                
             self.init_tasks_completed.add('menu')
+            log("Alt-меню отключено (перенесено в страницы)", "INFO")
         except Exception as e:
-            log(f"Ошибка инициализации меню: {e}", "❌ ERROR")
-            import traceback
-            log(f"Traceback: {traceback.format_exc()}", "DEBUG")
+            log(f"Ошибка отключения меню: {e}", "❌ ERROR")
 
     def _connect_signals(self):
         """Подключение всех сигналов"""
         try:
             self.app.start_clicked.connect(self._on_start_clicked)
             self.app.stop_clicked.connect(lambda: self.app.dpi_controller.stop_dpi_async())
-            self.app.theme_changed.connect(self.app.change_theme)
             self.app.open_folder_btn.clicked.connect(self.app.open_folder)
             self.app.test_connection_btn.clicked.connect(self.app.open_connection_test)
             self.app.server_status_btn.clicked.connect(self.app.show_servers_page)
@@ -343,15 +322,18 @@ class InitializationManager:
             if hasattr(self.app, 'appearance_page') and hasattr(self.app.appearance_page, 'snowflakes_changed'):
                 self.app.appearance_page.snowflakes_changed.connect(self.app.set_snowflakes_enabled)
 
-            # Сигнал эффекта размытия
-            if hasattr(self.app, 'appearance_page') and hasattr(self.app.appearance_page, 'blur_effect_changed'):
-                self.app.appearance_page.blur_effect_changed.connect(self.app.set_blur_effect_enabled)
-
             # Сигнал прозрачности окна
             if hasattr(self.app, 'appearance_page') and hasattr(self.app.appearance_page, 'opacity_changed'):
                 self.app.appearance_page.opacity_changed.connect(self.app.set_window_opacity)
 
             self.init_tasks_completed.add('signals')
+
+            # Фиксируем метрику "interactive": базовые сигналы UI уже подключены.
+            try:
+                if hasattr(self.app, '_mark_startup_interactive'):
+                    self.app._mark_startup_interactive("signals_connected")
+            except Exception:
+                pass
         except Exception as e:
             log(f"Ошибка при подключении сигналов: {e}", "❌ ERROR")
 
@@ -361,23 +343,23 @@ class InitializationManager:
 
         launch_method = get_strategy_launch_method()
 
-        # Для режимов direct/direct_orchestra проверяем выбранные категории
-        if launch_method in ("direct", "direct_orchestra"):
+        # Для режимов direct/direct_zapret2_orchestra проверяем выбранные категории
+        if launch_method in ("direct_zapret2", "direct_zapret2_orchestra"):
             selections = get_direct_strategy_selections()
             # Проверяем есть ли хотя бы одна категория не равная 'none'
             has_any = any(v and v != 'none' for v in selections.values())
             if not has_any:
-                # Нет выбранных стратегий - перенаправляем на страницу стратегий
-                self._navigate_to_strategies()
+                # Нет выбранных стратегий: остаёмся на текущей странице и показываем предупреждение.
+                self._show_strategy_required_warning(for_bat=False)
                 self.app.set_status("⚠️ Выберите стратегию для запуска")
                 return
 
-        # Для BAT режима проверяем последнюю выбранную стратегию
-        elif launch_method == "bat":
-            from config.reg import get_last_bat_strategy
-            last_strategy = get_last_bat_strategy()
-            if not last_strategy or last_strategy == "Автостарт DPI отключен":
-                self._navigate_to_strategies()
+        # Для direct_zapret1 проверяем наличие preset-zapret1.txt
+        elif launch_method == "direct_zapret1":
+            from preset_zapret1 import get_active_preset_path_v1, ensure_default_preset_exists_v1
+            ensure_default_preset_exists_v1()
+            if not get_active_preset_path_v1().exists():
+                self._show_strategy_required_warning(for_bat=False)
                 self.app.set_status("⚠️ Выберите стратегию для запуска")
                 return
 
@@ -386,17 +368,32 @@ class InitializationManager:
         # Запускаем DPI
         self.app.dpi_controller.start_dpi_async()
 
-    def _navigate_to_strategies(self):
-        """Перенаправляет на страницу выбора стратегий"""
+    def _show_strategy_required_warning(self, for_bat: bool = False) -> None:
+        """Показывает popup-предупреждение без смены текущей страницы."""
+        if for_bat:
+            subtitle = (
+                "Для запуска Zapret выберите готовый пресет в разделе «Стратегии»."
+            )
+        else:
+            subtitle = (
+                "Для запуска Zapret выберите хотя бы одну стратегию "
+                "в разделе «Стратегии»."
+            )
+
         try:
-            if hasattr(self.app, '_navigate_to_strategies'):
-                self.app._navigate_to_strategies()
-            elif hasattr(self.app, 'side_nav') and hasattr(self.app, 'pages_stack') and hasattr(self.app, 'strategies_page'):
-                index = self.app.pages_stack.indexOf(self.app.strategies_page)
-                if index >= 0:
-                    self.app.side_nav.set_page(index)
+            from ui.close_dialog import show_start_strategy_warning
+
+            show_start_strategy_warning(parent=self.app, subtitle=subtitle)
+            return
         except Exception as e:
-            log(f"Ошибка навигации на страницу стратегий: {e}", "DEBUG")
+            log(f"Не удалось открыть фирменное предупреждение запуска: {e}", "DEBUG")
+
+        try:
+            from PyQt6.QtWidgets import QMessageBox
+
+            QMessageBox.warning(self.app, "Стратегия не выбрана", subtitle)
+        except Exception:
+            pass
 
     # ═══════════════════════════════════════════════════════════════════
     # ФАЗА 2: Инициализация менеджеров (разбито на логические группы)
@@ -413,8 +410,9 @@ class InitializationManager:
             ensure_required_files()
             
             # DPI Manager
-            from managers.dpi_manager import DPIManager
-            self.app.dpi_manager = DPIManager(self.app)
+            if not getattr(self.app, 'dpi_manager', None):
+                from managers.dpi_manager import DPIManager
+                self.app.dpi_manager = DPIManager(self.app)
             
             # Process Monitor
             if hasattr(self.app, 'process_monitor_manager'):
@@ -433,22 +431,26 @@ class InitializationManager:
             t0 = _t.perf_counter()
             
             # Discord Manager
-            from discord.discord import DiscordManager
-            self.app.discord_manager = DiscordManager(status_callback=self.app.set_status)
+            if not getattr(self.app, 'discord_manager', None):
+                from discord.discord import DiscordManager
+                self.app.discord_manager = DiscordManager(status_callback=self.app.set_status)
             
             # Hosts Manager
-            from hosts.hosts import HostsManager
-            self.app.hosts_manager = HostsManager(status_callback=self.app.set_status)
+            if not getattr(self.app, 'hosts_manager', None):
+                from hosts.hosts import HostsManager
+                self.app.hosts_manager = HostsManager(status_callback=self.app.set_status)
             
             # DNS UI Manager
-            from dns import DNSUIManager, DNSStartupManager
-            self.app.dns_ui_manager = DNSUIManager(
-                parent=self.app,
-                status_callback=self.app.set_status
-            )
-            
-            # Применяем DNS при запуске (асинхронно)
-            DNSStartupManager.apply_dns_on_startup_async(status_callback=self.app.set_status)
+            if not getattr(self.app, 'dns_ui_manager', None):
+                from dns import DNSUIManager, DNSStartupManager
+
+                self.app.dns_ui_manager = DNSUIManager(
+                    parent=self.app,
+                    status_callback=self.app.set_status
+                )
+
+                # Применяем DNS при запуске (асинхронно)
+                DNSStartupManager.apply_dns_on_startup_async(status_callback=self.app.set_status)
             
             log(f"✅ Network managers: {(_t.perf_counter() - t0)*1000:.0f}ms", "DEBUG")
             self.init_tasks_completed.add('network_managers')
@@ -475,7 +477,7 @@ class InitializationManager:
             )
             
             # Handler и привязка
-            self.app.theme_handler = ThemeHandler(self.app, target_widget=self.app.main_widget)
+            self.app.theme_handler = ThemeHandler(self.app, target_widget=self.app)
             self.app.theme_handler.set_theme_manager(self.app.theme_manager)
             self.app.theme_handler.update_available_themes()
             
@@ -496,43 +498,13 @@ class InitializationManager:
                 self.app.appearance_page.set_premium_status(is_premium)
                 log(f"🎨 Установлена текущая тема в галерее: '{current_theme}' (premium={is_premium})", "DEBUG")
             
-            # ✅ Проверяем, был ли CSS уже применён синхронно при старте
-            if getattr(self.app, '_css_applied_at_startup', False):
-                startup_theme = getattr(self.app, '_startup_theme', None)
-                
-                if startup_theme == current_theme:
-                    log(f"⏭️ CSS уже применён при старте для '{current_theme}', пропускаем асинхронное применение", "DEBUG")
-                    self.app._theme_pending = False
-                    
-                    # Помечаем тему как применённую в ThemeManager
-                    self.app.theme_manager._theme_applied = True
-                    # ✅ Хеш берём от главного окна (CSS применяется к нему)
-                    self.app.theme_manager._current_css_hash = hash(self.app.styleSheet())
-                    
-                    # ✅ Закрываем splash т.к. тема применена
-                    if hasattr(self.app, 'splash') and self.app.splash:
-                        self.app.splash.set_progress(100, "Готово", "")
-                else:
-                    # Темы разные - применяем асинхронно
-                    log(f"🔄 Тема изменилась: startup='{startup_theme}' -> current='{current_theme}'", "DEBUG")
-                    self.app._theme_pending = True
-                    self.app.theme_manager.apply_theme_async(
-                        persist=True,
-                        progress_callback=self._on_theme_progress,
-                        done_callback=self._on_theme_ready
-                    )
-            else:
-                # CSS не был применён при старте - применяем асинхронно
-                self.app._theme_pending = True
-                
-                if hasattr(self.app, 'splash') and self.app.splash:
-                    self.app.splash.set_progress(40, "Генерация темы...", "")
-                
-                self.app.theme_manager.apply_theme_async(
-                    persist=True,
-                    progress_callback=self._on_theme_progress,
-                    done_callback=self._on_theme_ready
-                )
+            # ✅ qfluentwidgets manages ALL styling via setTheme(DARK/LIGHT/AUTO).
+            # Legacy qt-material CSS (overlay_css) conflicts with FluentWindow's internal
+            # theming: applying it via main_window.setStyleSheet() injects hardcoded dark-mode
+            # QLabel colors (color: rgba(255,255,255,0.87)) that persist when the user
+            # switches to Light mode → white text on white background.
+            # Solution: skip apply_theme_async() entirely.
+            log(f"⏭️ Применение CSS пропущено — qfluentwidgets управляет стилями нативно", "DEBUG")
             
             log(f"✅ Theme manager: {(_t.perf_counter() - t0)*1000:.0f}ms (CSS в фоне)", "DEBUG")
             self.init_tasks_completed.add('theme_manager')
@@ -544,6 +516,11 @@ class InitializationManager:
         try:
             import time as _t
             t0 = _t.perf_counter()
+
+            if getattr(self.app, 'service_manager', None):
+                self.init_tasks_completed.add('service_managers')
+                log("Service managers уже инициализированы, пропускаем", "DEBUG")
+                return
             
             # Service Manager (автозапуск)
             from autostart.checker import CheckerManager
@@ -566,48 +543,25 @@ class InitializationManager:
             # Обновляем UI состояние
             from autostart.registry_check import is_autostart_enabled
             autostart_exists = is_autostart_enabled()
-            
+
             if hasattr(self.app, 'ui_manager'):
                 self.app.ui_manager.update_autostart_ui(autostart_exists)
                 self.app.ui_manager.update_ui_state(running=False)
-            
+
             self.init_tasks_completed.add('managers')
             self._on_managers_init_done()
             log("✅ Managers init finalized", "DEBUG")
         except Exception as e:
             log(f"❌ Ошибка финализации: {e}", "ERROR")
 
-    def _on_theme_progress(self, status: str):
-        """Обработчик прогресса генерации темы"""
-        try:
-            # Обновляем splash если есть
-            if hasattr(self.app, 'splash') and self.app.splash:
-                self.app.splash.set_progress(45, f"🎨 {status}", "")
-        except Exception:
-            pass
-    
-    def _on_theme_ready(self, success: bool, message: str):
-        """Обработчик завершения генерации/применения темы"""
-        try:
-            self.app._theme_pending = False
-            
-            if success:
-                log(f"✅ Тема применена асинхронно: {message}", "DEBUG")
-                # Устанавливаем текущую тему в галерее
-                if hasattr(self.app, 'appearance_page') and hasattr(self.app, 'theme_manager'):
-                    self.app.appearance_page.set_current_theme(self.app.theme_manager.current_theme)
-                
-                # ✅ Закрываем splash т.к. тема применена
-                if hasattr(self.app, 'splash') and self.app.splash:
-                    self.app.splash.set_progress(100, "Готово", "")
-            else:
-                log(f"⚠ Тема не применена: {message}", "WARNING")
-        except Exception as e:
-            log(f"Ошибка в _on_theme_ready: {e}", "ERROR")
-
     def _init_tray(self):
         """Инициализация системного трея"""
         try:
+            if getattr(self.app, 'tray_manager', None):
+                self.init_tasks_completed.add('tray')
+                log("Системный трей уже инициализирован, пропускаем", "DEBUG")
+                return
+
             from tray import SystemTrayManager
             from config import ICON_PATH, ICON_TEST_PATH, APP_VERSION, CHANNEL
             from PyQt6.QtGui import QIcon
@@ -634,23 +588,9 @@ class InitializationManager:
             log(f"Ошибка инициализации трея: {e}", "❌ ERROR")
 
     def _init_logger(self):
-        """Инициализация отправки логов"""
-        try:
-            from log import global_logger
-            from tgram import FullLogDaemon
-
-            log_path = getattr(global_logger, 'log_file', None)
-            if log_path:
-                self.app.log_sender = FullLogDaemon(
-                    log_path=log_path,
-                    interval=1800,  # 30 минут
-                    parent=self.app
-                )
-                log("Логгер инициализирован", "INFO")
-            else:
-                log("Не удалось инициализировать отправку логов", "⚠ WARNING")
-        except Exception as e:
-            log(f"Ошибка инициализации логгера: {e}", "ERROR")
+        """Автоматическая отправка логов отключена.
+        Логи можно отправить вручную через UI (страница Логи → Отправить)."""
+        pass
     
     def _init_subscription_check(self):
         """Фоновая проверка подписки при запуске"""
@@ -658,9 +598,26 @@ class InitializationManager:
             log("Запуск фоновой проверки подписки...", "DEBUG")
             
             if hasattr(self.app, 'subscription_manager') and self.app.subscription_manager:
+                # Не дублируем сетевые проверки: если первичная инициализация уже
+                # выполняется или завершилась, дополнительная проверка не нужна.
+                if bool(getattr(self.app, '_startup_subscription_ready', False)):
+                    log("Фоновая проверка подписки пропущена: первичная проверка уже завершена", "DEBUG")
+                    return
+
+                init_thread = getattr(self.app.subscription_manager, '_subscription_thread', None)
+                try:
+                    if init_thread is not None and init_thread.isRunning():
+                        log("Фоновая проверка подписки пропущена: идет первичная инициализация", "DEBUG")
+                        return
+                except RuntimeError:
+                    pass
+
                 # Запускаем проверку в фоне (silent=True чтобы не показывать уведомления)
-                self.app.subscription_manager.check_and_update_subscription(silent=True)
-                log("Фоновая проверка подписки завершена", "INFO")
+                started = self.app.subscription_manager.check_and_update_subscription_async(silent=True)
+                if started:
+                    log("Фоновая проверка подписки запущена", "INFO")
+                else:
+                    log("Фоновая проверка подписки отложена: donate_checker еще не готов", "DEBUG")
             else:
                 log("subscription_manager не инициализирован, повторная попытка через 1с", "WARNING")
                 # Повторная попытка через 1 секунду
@@ -674,6 +631,26 @@ class InitializationManager:
     def _required_components(self):
         """Список требуемых компонентов для успешного старта"""
         return ['dpi_starter', 'dpi_controller', 'strategy_manager', 'managers']
+
+    def _get_post_init_delay_ms(self) -> int:
+        """Возвращает задержку перед post-init задачами."""
+        try:
+            from strategy_menu import get_strategy_launch_method
+
+            # Для direct_zapret2 запускаем post-init почти сразу,
+            # чтобы сократить время до автозапуска пресета.
+            if get_strategy_launch_method() == "direct_zapret2":
+                return 75
+        except Exception:
+            pass
+
+        return 500
+
+    def _get_dpi_autostart_delay_ms(self, launch_method: str) -> int:
+        """Возвращает задержку перед автозапуском DPI по режиму."""
+        if launch_method == "direct_zapret2":
+            return 75
+        return 1000
 
     def _check_and_complete_initialization(self) -> bool:
         """
@@ -699,7 +676,7 @@ class InitializationManager:
             log("Все компоненты успешно инициализированы", "✅ SUCCESS")
 
             # Финальные задачи
-            QTimer.singleShot(500, self._post_init_tasks)
+            QTimer.singleShot(self._get_post_init_delay_ms(), self._post_init_tasks)
             QTimer.singleShot(3000, self._sync_autostart_status)
 
         return True
@@ -763,21 +740,20 @@ class InitializationManager:
     def _on_managers_init_done(self):
         """
         Обработчик успешной инициализации менеджеров:
-        - запускает Heavy Init (если есть)
-        - пытается «завершить» общую инициализацию сразу, без ожидания таймера
+        - обновляет статус
+        - завершает общую инициализацию
         """
-        log("Менеджеры инициализированы, запускаем Heavy Init", "✅ SUCCESS")
+        log("Менеджеры инициализированы", "✅ SUCCESS")
+        try:
+            if hasattr(self.app, '_mark_startup_managers_ready'):
+                self.app._mark_startup_managers_ready("initialization_manager")
+        except Exception:
+            pass
+
         try:
             self.app.set_status("Инициализация завершена")
         except Exception:
             pass
-
-        # Heavy Init
-        if hasattr(self.app, 'heavy_init_manager'):
-            QTimer.singleShot(100, self.app.heavy_init_manager.start_heavy_init)
-            log("🔵 Heavy Init запланирован", "DEBUG")
-        else:
-            log("❌ Heavy Init Manager не найден", "ERROR")
 
         # Пробуем завершить общую инициализацию уже сейчас
         self._check_and_complete_initialization()
@@ -787,17 +763,120 @@ class InitializationManager:
         if self._post_init_scheduled:
             return
         self._post_init_scheduled = True
+        post_init_metric_source = "post_init_ok"
 
         try:
-            # Проверка локальных файлов и автозапуск DPI
-            if hasattr(self.app, 'heavy_init_manager'):
-                if self.app.heavy_init_manager.check_local_files():
-                    if hasattr(self.app, 'dpi_manager'):
-                        QTimer.singleShot(1000, self.app.dpi_manager.delayed_dpi_start)
-            
+            # Проверка winws.exe
+            if not self._check_winws_exists():
+                log("winws.exe не найден", "❌ ERROR")
+                self.app.set_status("❌ winws.exe не найден")
+                post_init_metric_source = "post_init_winws_missing"
+                return
+
+            log("✅ winws.exe найден", "DEBUG")
+
+            # Проверяем режим запуска ПЕРЕД делегированием
+            from strategy_menu import get_strategy_launch_method
+            launch_method = get_strategy_launch_method()
+            autostart_delay_ms = self._get_dpi_autostart_delay_ms(launch_method)
+
+            if launch_method == "direct_zapret2":
+                # Отдельный путь для direct_zapret2 (использует preset файл)
+                QTimer.singleShot(autostart_delay_ms, self._start_direct_zapret2_autostart)
+            else:
+                # Все остальные режимы через dpi_manager
+                if hasattr(self.app, 'dpi_manager'):
+                    QTimer.singleShot(autostart_delay_ms, self.app.dpi_manager.delayed_dpi_start)
+
             # Обновления проверяются вручную на вкладке "Серверы"
-                
+
         except Exception as e:
+            post_init_metric_source = f"post_init_error:{type(e).__name__}"
             log(f"Ошибка post-init задач: {e}", "❌ ERROR")
             import traceback
             log(traceback.format_exc(), "DEBUG")
+        finally:
+            try:
+                if hasattr(self.app, '_mark_startup_post_init_done'):
+                    self.app._mark_startup_post_init_done(post_init_metric_source)
+            except Exception:
+                pass
+
+    def _check_winws_exists(self) -> bool:
+        """Проверка наличия winws.exe"""
+        try:
+            import os
+            from config import get_winws_exe_for_method
+            from strategy_menu import get_strategy_launch_method
+
+            launch_method = get_strategy_launch_method()
+            target_file = get_winws_exe_for_method(launch_method)
+
+            return os.path.exists(target_file)
+
+        except Exception as e:
+            log(f"Ошибка при проверке winws.exe: {e}", "DEBUG")
+            # Fallback на WINWS_EXE
+            try:
+                from config import WINWS_EXE
+                import os
+                return os.path.exists(WINWS_EXE)
+            except:
+                return False
+
+    def _start_direct_zapret2_autostart(self):
+        """Автозапуск для режима direct_zapret2 (использует preset файл)"""
+        # 1. Проверяем включен ли автозапуск
+        from config import get_dpi_autostart
+        if not get_dpi_autostart():
+            log("Автозапуск DPI отключен", "INFO")
+            self.app.set_status("Готово")
+            return
+
+        # 2. Проверяем наличие preset файла
+        from preset_zapret2 import (
+            get_active_preset_path,
+            get_active_preset_name,
+            ensure_default_preset_exists,
+        )
+
+        try:
+            if not ensure_default_preset_exists():
+                log(
+                    "Автозапуск direct_zapret2 пропущен: не удалось подготовить preset-zapret2.txt (нет %APPDATA%/zapret/presets_v2_template/Default.txt)",
+                    "ERROR",
+                )
+                self.app.set_status("Ошибка: отсутствует Default.txt (built-in пресет)")
+                return
+            preset_path = get_active_preset_path()
+            preset_name = get_active_preset_name() or "Default"
+
+            if not preset_path.exists():
+                log(f"Preset файл не найден: {preset_path}", "ERROR")
+                self.app.set_status("Ошибка: preset файл не найден")
+                return
+
+            # 3. Формируем selected_mode для запуска из preset файла
+            selected_mode = {
+                "is_preset_file": True,
+                "name": f"Пресет: {preset_name}",
+                "preset_path": str(preset_path),
+            }
+
+            log(f"Автозапуск direct_zapret2 из preset файла: {preset_path}", "INFO")
+
+            # 4. Запускаем через dpi_controller
+            self.app.current_strategy_name = f"Пресет: {preset_name}"
+            self.app.dpi_controller.start_dpi_async(
+                selected_mode=selected_mode, launch_method="direct_zapret2"
+            )
+
+            # 5. Обновляем UI
+            if hasattr(self.app, "ui_manager"):
+                self.app.ui_manager.update_ui_state(running=True)
+
+        except Exception as e:
+            log(f"Ошибка автозапуска direct_zapret2: {e}", "ERROR")
+            import traceback
+            log(traceback.format_exc(), "DEBUG")
+            self.app.set_status(f"Ошибка автозапуска: {e}")
