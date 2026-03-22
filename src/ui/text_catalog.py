@@ -2692,16 +2692,16 @@ TEXTS: dict[str, dict[str, str]] = {
         "en": "Flush?",
     },
     "page.network.force_dns.card.title": {
-        "ru": "Принудительно прописывает Google DNS для обхода блокировок",
-        "en": "Force-sets Google DNS to bypass blocking",
+        "ru": "Принудительно прописывает Google DNS + OpenDNS для обхода блокировок",
+        "en": "Force-sets Google DNS + OpenDNS to bypass blocking",
     },
     "page.network.force_dns.toggle.title": {
         "ru": "Принудительный DNS",
         "en": "Forced DNS",
     },
     "page.network.force_dns.toggle.description": {
-        "ru": "Устанавливает Google DNS на активные адаптеры",
-        "en": "Sets Google DNS on active adapters",
+        "ru": "Устанавливает Google DNS + OpenDNS на активные адаптеры",
+        "en": "Sets Google DNS + OpenDNS on active adapters",
     },
     "page.network.force_dns.reset.button": {
         "ru": "Сбросить DNS на DHCP",
@@ -2786,6 +2786,26 @@ TEXTS: dict[str, dict[str, str]] = {
     "page.network.test.infobar.partial": {
         "ru": "Некоторые проверки не пройдены:\n\n{report}",
         "en": "Some checks failed:\n\n{report}",
+    },
+    "page.network.isp_dns.infobar.title": {
+        "ru": "DNS от провайдера",
+        "en": "ISP DNS detected",
+    },
+    "page.network.isp_dns.infobar.content": {
+        "ru": "У вас установлен DNS от провайдера (получен автоматически через DHCP). Провайдерский DNS может подменять ответы и мешать обходу блокировок.\n\nРекомендуем установить публичный DNS (Google + OpenDNS) для стабильной работы.",
+        "en": "Your DNS is set automatically from your ISP (via DHCP). ISP DNS may poison responses and interfere with DPI bypass.\n\nWe recommend setting public DNS (Google + OpenDNS) for stable operation.",
+    },
+    "page.network.isp_dns.infobar.action": {
+        "ru": "Установить рекомендуемый DNS",
+        "en": "Set recommended DNS",
+    },
+    "page.network.isp_dns.infobar.dismiss": {
+        "ru": "Нет, спасибо",
+        "en": "No, thanks",
+    },
+    "page.network.dns.doh_supported": {
+        "ru": "DoH",
+        "en": "DoH",
     },
     "page.orchestra.subtitle": {
         "ru": "Автоматическое обучение стратегий DPI bypass. Система находит лучшую стратегию для каждого домена (TCP: TLS/HTTP, UDP: QUIC/Discord Voice/STUN).\nЧтобы начать обучение зайдите на сайт и через несколько секунд обновите вкладку. Продолжайте это пока стратегия не будет помечена как LOCKED",

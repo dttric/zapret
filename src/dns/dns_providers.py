@@ -70,14 +70,16 @@ DNS_PROVIDERS = {
             "ipv6": [],
             "desc": "ChatGPT",
             "icon": "fa5s.robot",
-            "color": "#9c27b0"
+            "color": "#9c27b0",
+            "doh": "https://xbox-dns.ru/dns-query"
         },
         "Comss DNS": {
             "ipv4": ["83.220.169.155", "212.109.195.93"],
             "ipv6": [],
             "desc": "ChatGPT",
             "icon": "fa5s.brain",
-            "color": "#673ab7"
+            "color": "#673ab7",
+            "doh": "https://dns.comss.one/dns-query"
         },
         "dns.malw.link": {
             "ipv4": ["84.21.189.133", "64.188.98.242"],

@@ -9,7 +9,7 @@ from PyQt6.QtCore import Qt, QEvent, pyqtSignal
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel,
     QFrame, QRadioButton, QButtonGroup,
-    QLineEdit, QCheckBox, QProgressBar,
+    QLineEdit, QCheckBox, QProgressBar, QPushButton,
 )
 import qtawesome as qta
 
@@ -148,6 +148,22 @@ class DNSProviderCard(SettingsCard):
             desc_label = QLabel(f"· {self.data.get('desc', '')}")
             desc_label.setStyleSheet(f"color: {tokens.fg_faint}; font-size: 11px;")
         layout.addWidget(desc_label)
+
+        # DoH бейдж
+        if self.data.get("doh"):
+            doh_label = QLabel(tr_catalog(
+                "page.network.dns.doh_supported", default="DoH",
+            ))
+            doh_label.setStyleSheet(f"""
+                color: {tokens.accent_hex};
+                background-color: {tokens.accent_soft_bg};
+                border-radius: 6px;
+                padding: 1px 6px;
+                font-size: 9px;
+                font-weight: 600;
+            """)
+            doh_label.setToolTip("DNS over HTTPS — зашифрованный DNS")
+            layout.addWidget(doh_label)
 
         layout.addStretch()
 
@@ -411,7 +427,7 @@ class NetworkPage(BasePage):
             self.force_dns_card.set_title(
                 self._tr(
                     "page.network.force_dns.card.title",
-                    "Принудительно прописывает Google DNS для обхода блокировок",
+                    "Принудительно прописывает Google DNS + OpenDNS для обхода блокировок",
                 )
             )
         if hasattr(self, "force_dns_toggle"):
@@ -419,7 +435,7 @@ class NetworkPage(BasePage):
                 self._tr("page.network.force_dns.toggle.title", "Принудительный DNS"),
                 self._tr(
                     "page.network.force_dns.toggle.description",
-                    "Устанавливает Google DNS на активные адаптеры",
+                    "Устанавливает Google DNS + OpenDNS на активные адаптеры",
                 ),
             )
         if hasattr(self, "force_dns_reset_dhcp_btn"):
@@ -740,7 +756,10 @@ class NetworkPage(BasePage):
             self.adapters_layout.addWidget(card)
 
         self._sync_selected_dns_card()
-    
+
+        # Проверяем ISP DNS и показываем предупреждение
+        self._check_and_show_isp_dns_warning()
+
     def _is_current_dns(self, provider_ips: list, current_ips: list) -> bool:
         return (len(provider_ips) > 0 and 
                 len(current_ips) > 0 and 
@@ -1019,19 +1038,19 @@ class NetworkPage(BasePage):
         self.force_dns_card = SettingsCard(
             self._tr(
                 "page.network.force_dns.card.title",
-                "Принудительно прописывает Google DNS для обхода блокировок",
+                "Принудительно прописывает Google DNS + OpenDNS для обхода блокировок",
             )
         )
         dns_layout = QVBoxLayout()
         dns_layout.setSpacing(8)
-        
+
         # Toggle row в стиле Win11
         self.force_dns_toggle = Win11ToggleRow(
             "fa5s.shield-alt",
             self._tr("page.network.force_dns.toggle.title", "Принудительный DNS"),
             self._tr(
                 "page.network.force_dns.toggle.description",
-                "Устанавливает Google DNS на активные адаптеры",
+                "Устанавливает Google DNS + OpenDNS на активные адаптеры",
             ),
             tokens.accent_hex
         )
@@ -1375,4 +1394,183 @@ class NetworkPage(BasePage):
                     ).format(report=report),
                     parent=self.window(),
                 )
-    
+
+    # ═══════════════════════════════════════════════════════════════
+    # ISP DNS предупреждение
+    # ═══════════════════════════════════════════════════════════════
+
+    def _check_and_show_isp_dns_warning(self):
+        """Показывает предупреждение если у пользователя DNS от провайдера (DHCP).
+
+        Показывается ОДИН раз за всё время установки. Как только баннер
+        отрисован — в реестр пишется ISPDNSInfoShown=1 и повторно он
+        больше никогда не появится.
+        """
+        try:
+            # Если Force DNS уже включен — пропускаем
+            if self._force_dns_active:
+                return
+
+            # Проверяем был ли баннер уже показан ранее (один раз за установку)
+            from config import REGISTRY_PATH
+            from config.reg import reg
+            already_shown = reg(REGISTRY_PATH, "ISPDNSInfoShown")
+            if already_shown:
+                return
+
+            # Проверяем есть ли адаптеры с пустым DNS (DHCP)
+            from dns.dns_core import _normalize_alias
+            all_dhcp = True
+            has_adapters = False
+            for name, _desc in self._adapters:
+                has_adapters = True
+                clean = _normalize_alias(name)
+                dns_data = self._dns_info.get(clean, {"ipv4": [], "ipv6": []})
+                ipv4 = AdapterCard._normalize_dns_list(dns_data.get("ipv4", []))
+                if ipv4:
+                    all_dhcp = False
+                    break
+
+            if not has_adapters or not all_dhcp:
+                return
+
+            # Строим inline-баннер предупреждения
+            tokens = get_theme_tokens()
+
+            self._isp_warning = QFrame()
+            self._isp_warning.setStyleSheet(f"""
+                QFrame {{
+                    background-color: rgba(255, 152, 0, 0.12);
+                    border: 1px solid rgba(255, 152, 0, 0.35);
+                    border-radius: 8px;
+                }}
+            """)
+
+            warning_layout = QVBoxLayout(self._isp_warning)
+            warning_layout.setContentsMargins(14, 10, 14, 10)
+            warning_layout.setSpacing(6)
+
+            # Заголовок с иконкой
+            title_row = QHBoxLayout()
+            title_row.setSpacing(8)
+
+            icon_label = QLabel()
+            icon_label.setPixmap(
+                qta.icon("fa5s.exclamation-triangle", color="#ff9800").pixmap(16, 16)
+            )
+            icon_label.setFixedSize(18, 18)
+            icon_label.setStyleSheet("background: transparent; border: none;")
+            title_row.addWidget(icon_label)
+
+            title_text = QLabel(self._tr(
+                "page.network.isp_dns.infobar.title",
+                "DNS от провайдера",
+            ))
+            title_text.setStyleSheet(f"""
+                color: {tokens.fg};
+                font-size: 13px;
+                font-weight: 600;
+                background: transparent;
+                border: none;
+            """)
+            title_row.addWidget(title_text)
+            title_row.addStretch()
+            warning_layout.addLayout(title_row)
+
+            # Текст описания
+            content_label = QLabel(self._tr(
+                "page.network.isp_dns.infobar.content",
+                "У вас установлен DNS от провайдера (получен автоматически через DHCP). "
+                "Провайдерский DNS может подменять ответы и мешать обходу блокировок.\n\n"
+                "Рекомендуем установить публичный DNS (Google + OpenDNS) для стабильной работы.",
+            ))
+            content_label.setWordWrap(True)
+            content_label.setStyleSheet(f"""
+                color: {tokens.fg_muted};
+                font-size: 12px;
+                background: transparent;
+                border: none;
+            """)
+            warning_layout.addWidget(content_label)
+
+            # Кнопки действий
+            btn_row = QHBoxLayout()
+            btn_row.setSpacing(8)
+
+            accept_btn = QPushButton(self._tr(
+                "page.network.isp_dns.infobar.action",
+                "Установить рекомендуемый DNS",
+            ))
+            accept_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+            accept_btn.setStyleSheet(f"""
+                QPushButton {{
+                    background-color: {tokens.accent_hex};
+                    color: white;
+                    border: none;
+                    border-radius: 6px;
+                    padding: 5px 14px;
+                    font-size: 12px;
+                    font-weight: 500;
+                }}
+                QPushButton:hover {{
+                    background-color: {tokens.accent_hover_hex};
+                }}
+            """)
+            accept_btn.clicked.connect(self._accept_isp_dns_recommendation)
+            btn_row.addWidget(accept_btn)
+
+            dismiss_btn = QPushButton(self._tr(
+                "page.network.isp_dns.infobar.dismiss",
+                "Нет, спасибо",
+            ))
+            dismiss_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+            dismiss_btn.setStyleSheet(f"""
+                QPushButton {{
+                    background-color: transparent;
+                    color: {tokens.fg_muted};
+                    border: 1px solid {tokens.toggle_off_border};
+                    border-radius: 6px;
+                    padding: 5px 14px;
+                    font-size: 12px;
+                }}
+                QPushButton:hover {{
+                    background-color: {tokens.surface_bg_hover};
+                }}
+            """)
+            dismiss_btn.clicked.connect(self._dismiss_isp_dns_warning)
+            btn_row.addWidget(dismiss_btn)
+
+            btn_row.addStretch()
+            warning_layout.addLayout(btn_row)
+
+            # Помечаем что баннер был показан — больше не покажем никогда
+            reg(REGISTRY_PATH, "ISPDNSInfoShown", 1)
+
+            # Вставляем баннер перед секцией DNS-серверов (после Force DNS)
+            idx = self.vBoxLayout.indexOf(self.dns_cards_container)
+            if idx >= 0:
+                self.vBoxLayout.insertWidget(idx, self._isp_warning)
+            else:
+                self.add_widget(self._isp_warning)
+
+        except Exception as e:
+            log(f"Ошибка показа ISP DNS предупреждения: {e}", "DEBUG")
+
+    def _accept_isp_dns_recommendation(self):
+        """Включает Force DNS по рекомендации из баннера"""
+        try:
+            if hasattr(self, "_isp_warning"):
+                self._isp_warning.hide()
+                self._isp_warning.deleteLater()
+
+            # Включаем Force DNS
+            self._set_force_dns_toggle(True)
+            self._on_force_dns_toggled(True)
+        except Exception as e:
+            log(f"Ошибка применения рекомендуемого DNS: {e}", "ERROR")
+
+    def _dismiss_isp_dns_warning(self):
+        """Скрывает баннер (реестр уже записан при показе)"""
+        if hasattr(self, "_isp_warning"):
+            self._isp_warning.hide()
+            self._isp_warning.deleteLater()

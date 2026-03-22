@@ -290,6 +290,12 @@ DOH_TEMPLATES = {
     "84.21.189.133": "https://dns.malw.link/dns-query",
     "64.188.98.242": "https://dns.malw.link/dns-query",
     "194.180.189.33": "https://dnsdoh.art:444/dns-query",
+    # Xbox DNS (xbox-dns.ru)
+    "176.99.11.77": "https://xbox-dns.ru/dns-query",
+    "80.78.247.254": "https://xbox-dns.ru/dns-query",
+    # Comss DNS (dns.comss.one)
+    "83.220.169.155": "https://dns.comss.one/dns-query",
+    "212.109.195.93": "https://dns.comss.one/dns-query",
 }
 
 # DoH настройки
