@@ -534,6 +534,11 @@ class LupiDPIApp(ZapretFluentWindow, MainWindowUI, ThemeSubscriptionManager):
         else:
             log("Запрошен выход: выйти без остановки DPI", "INFO")
 
+        # Закрываем все окна — это вызовет closeEvent с полной очисткой
+        # потоков, страниц и менеджеров (т.к. _closing_completely=True).
+        # Без этого closeEvent не вызывается и cleanup не происходит → краш.
+        QApplication.closeAllWindows()
+        QApplication.processEvents()
         QApplication.quit()
 
     def minimize_to_tray(self) -> None:
