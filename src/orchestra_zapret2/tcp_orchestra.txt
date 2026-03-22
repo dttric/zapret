@@ -1,0 +1,278 @@
+[default]
+name = Default
+author = hz
+label = recommended
+description = Дефолтный конфиг
+blobs = tls5
+--out-range=-d1000
+--in-range=-s5556
+--lua-desync=circular:fails=1:time=300:retrans=3:nld=2
+--out-range=-d10
+--payload=all
+--lua-desync=pass
+--lua-desync=multisplit:pos=host
+--lua-desync=multidisorder:pos=1,host+2,sld+2,sld+5,sniext+1,sniext+2,endhost-2:seqovl=1
+--lua-desync=multisplit:pos=2,midsld-2:seqovl=1:seqovl_pattern=tls7
+--lua-desync=hostfakesplit_multi:hosts=google.com,vimeo.com:tcp_ts=-1000:tcp_md5:repeats=2
+--lua-desync=fake:blob=fake_default_http:repeats=4:ip_autottl=2,3-20:ip6_autottl=2,3-20:tcp_md5
+--lua-desync=multidisorder:pos=host+1
+--lua-desync=multisplit:pos=2:seqovl=211:seqovl_pattern=tls5
+--lua-desync=multisplit:pos=2:seqovl=652:seqovl_pattern=tls_google
+--lua-desync=multisplit:pos=10:seqovl=625:seqovl_pattern=tls5
+--lua-desync=multisplit:pos=10:seqovl=700:seqovl_pattern=tls_google
+--lua-desync=multisplit:pos=234:seqovl=700:seqovl_pattern=tls5
+--lua-desync=multisplit:pos=234:seqovl=700:seqovl_pattern=tls1
+--lua-desync=multisplit:pos=234:seqovl=1000:seqovl_pattern=tls_google
+--lua-desync=multisplit:seqovl=500:seqovl_pattern=tls_google
+--lua-desync=multisplit:seqovl=650:seqovl_pattern=tls_google
+--lua-desync=multisplit:seqovl=800:seqovl_pattern=tls_google
+--lua-desync=multisplit:seqovl=211:seqovl_pattern=tls5
+--lua-desync=multisplit:seqovl=625:seqovl_pattern=tls5
+--lua-desync=multisplit:seqovl=625:seqovl_pattern=tls_google
+--lua-desync=multisplit:seqovl=700:seqovl_pattern=tls_google
+--lua-desync=multisplit:seqovl=700:seqovl_pattern=tls_google
+
+[multisplit_seqovl]
+name = Circular Multisplit with seq overlap
+author = hz
+label = recommended
+description = Circular Multisplit with seq overlap
+blobs = tls5
+--out-range=-d1000
+--in-range=-s5556
+--lua-desync=circular:fails=1:time=300:retrans=3:nld=2
+--out-range=-d10
+--payload=tls_client_hello
+--lua-desync=pass
+--lua-desync=multisplit:pos=host
+--lua-desync=multisplit:pos=2:seqovl=211:seqovl_pattern=tls5
+--lua-desync=multisplit:pos=2:seqovl=652:seqovl_pattern=tls_google
+--lua-desync=multisplit:pos=10:seqovl=625:seqovl_pattern=tls5
+--lua-desync=multisplit:pos=10:seqovl=700:seqovl_pattern=tls_google
+--lua-desync=multisplit:pos=234:seqovl=700:seqovl_pattern=tls5
+--lua-desync=multisplit:pos=234:seqovl=700:seqovl_pattern=tls1
+--lua-desync=multisplit:pos=234:seqovl=1000:seqovl_pattern=tls_google
+--lua-desync=multisplit:seqovl=500:seqovl_pattern=tls_google
+--lua-desync=multisplit:seqovl=650:seqovl_pattern=tls_google
+--lua-desync=multisplit:seqovl=800:seqovl_pattern=tls_google
+--lua-desync=multisplit:seqovl=211:seqovl_pattern=tls5
+--lua-desync=multisplit:seqovl=625:seqovl_pattern=tls5
+--lua-desync=multisplit:seqovl=625:seqovl_pattern=tls_google
+--lua-desync=multisplit:seqovl=700:seqovl_pattern=tls_google
+--lua-desync=multisplit:seqovl=700:seqovl_pattern=tls_google
+
+[circular_youtube_14]
+name = Circular YouTube (14 strategies)
+author = zapret
+label = recommended
+description = Auto-rotate 14 strategies for YouTube. Circular orchestrator with RST and silent drop detection.
+blobs = fake_tls, tls_google
+--out-range=-d1000
+--in-range=-s5556
+--lua-desync=circular:fails=1:time=300:retrans=3:nld=2
+--out-range=-d10
+--payload=tls_client_hello
+--lua-desync=pass
+--lua-desync=multisplit_tls:payload=tls_client_hello:seqovl=680:sni=www.google.com:tls_rnd:tls_dupsid:pos=2
+--lua-desync=multisplit_tls:payload=tls_client_hello:seqovl=680:sni=ya.ru:tls_rnd:tls_dupsid:pos=2
+--lua-desync=multisplit_tls:payload=tls_client_hello:seqovl=700
+--lua-desync=multisplit_tls:payload=tls_client_hello:seqovl=652:sni=www.google.com:tls_rnd:tls_dupsid:pos=2
+--lua-desync=multisplit_tls:payload=tls_client_hello:seqovl=680:sni=www.google.com:tls_rnd:tls_dupsid:pos=2
+
+[circular_googlevideo]
+name = Circular GoogleVideo (10 strategies)
+author = zapret
+label = recommended
+description = Circular orchestrator для GoogleVideo с различными методами обхода DPI
+blobs = tls7, tls_google
+--out-range=-d1000
+--in-range=-s5556
+--lua-desync=circular:fails=1:time=300:retrans=3:nld=2
+--out-range=-d10
+--payload=tls_client_hello
+--lua-desync=pass
+--lua-desync=fakedsplit:pos=1:tcp_ack=-66000:repeats=10:ip_ttl=4:ip6_ttl=4
+--lua-desync=multisplit:pos=1:tcp_ack=-66000:repeats=10:ip_ttl=4:ip6_ttl=4
+--lua-desync=multisplit:pos=1:tcp_ack=-66000:repeats=15:ip_ttl=3:ip6_ttl=3
+--lua-desync=multisplit:pos=1,sld+1:seqovl=1:tcp_ack=-66000
+--lua-desync=multisplit:pos=2,midsld-2:seqovl=1:seqovl_pattern=tls7
+--lua-desync=multidisorder:pos=1,host+2,sld+2,sld+5,sniext+1,sniext+2,endhost-2:seqovl=1
+--lua-desync=multidisorder:pos=midsld,midsld+2:seqovl=1:tcp_ack=-66000:repeats=10
+--lua-desync=fakeddisorder:pos=2,midsld-2:pattern=tls7:seqovl=1:tcp_ack=-66000:ip_autottl=0,3-20:ip6_autottl=0,3-20
+--lua-desync=fakedsplit:pos=1:tcp_ack=-66000:repeats=8:ip_autottl=0,3-20:ip6_autottl=0,3-20
+--lua-desync=fake:blob=tls_google:tcp_ack=-66000
+
+[circular_fake_simple]
+name = Circular Fake Simple (12 strategies)
+author = zapret
+description = Простые fake стратегии с разными параметрами TTL, tcp_ack, tcp_md5
+blobs = fake_tls, tls_google
+--out-range=-d1000
+--in-range=-s5556
+--lua-desync=circular:fails=1:time=300:retrans=3:nld=2
+--out-range=-d10
+--payload=tls_client_hello
+--lua-desync=pass
+--lua-desync=fake:blob=fake_tls:tcp_md5
+--lua-desync=fake:blob=fake_tls:repeats=6:tcp_ack=-66000:tcp_ts_up
+--lua-desync=fake:blob=fake_tls:repeats=6:tcp_ack=-2:tcp_ts_up
+--lua-desync=fake:blob=fake_tls:repeats=6:tcp_md5
+--lua-desync=fake:blob=fake_tls:repeats=6
+--lua-desync=fake:blob=tls_google:repeats=6:tcp_ack=-66000:tcp_ts_up
+--lua-desync=fake:blob=tls_google:repeats=6:tcp_md5
+--lua-desync=fake:blob=tls_google:ip_autottl=2,3-20:ip6_autottl=2,3-20:repeats=6:tcp_ack=-66000
+--lua-desync=fake:blob=tls_google:ip_autottl=2,3-20:ip6_autottl=2,3-20:repeats=6:tcp_md5
+--lua-desync=fake:blob=fake_tls:ip_ttl=3:ip6_ttl=3:tls_mod=rnd,dupsid,sni=www.google.com
+--lua-desync=fake:blob=fake_tls:tcp_flags_unset=ack:tls_mod=rnd,rndsni,padencap
+--lua-desync=fake:blob=fake_tls:tcp_md5:tls_mod=rnd,rndsni,padencap
+
+[circular_fake_combo]
+name = Circular Fake+Split Combo (15 strategies)
+author = zapret
+label = recommended
+description = Комбинации fake + multisplit/multidisorder
+blobs = fake_tls, tls_google, tls7
+--out-range=-d1000
+--in-range=-s5556
+--lua-desync=circular:fails=1:time=300:retrans=3:nld=2
+--out-range=-d10
+--payload=tls_client_hello
+--lua-desync=pass
+--lua-desync=fake:blob=fake_tls:repeats=6:tcp_ack=-66000 --lua-desync=multidisorder:pos=1,midsld:tcp_ack=-66000
+--lua-desync=fake:blob=fake_tls:repeats=6:tcp_ack=-66000:tcp_md5 --lua-desync=multidisorder:pos=1,midsld:tcp_ack=-66000:tcp_md5
+--lua-desync=fake:blob=fake_tls:repeats=6:tcp_md5 --lua-desync=multidisorder:pos=1,midsld:tcp_md5
+--lua-desync=fake:blob=fake_tls:tcp_ack=-66000:repeats=6:tls_mod=rnd,dupsid,sni=www.google.com --lua-desync=multidisorder:pos=1,midsld:tcp_ack=-66000
+--lua-desync=fake:blob=tls_google:repeats=6:tcp_ack=-66000:tcp_ts_up --lua-desync=multisplit
+--lua-desync=fake:blob=tls_google:repeats=6:tcp_md5 --lua-desync=multisplit:repeats=6:tcp_md5
+--lua-desync=fake:blob=tls_google:ip_ttl=2:ip6_ttl=2 --lua-desync=multisplit:pos=sniext:seqovl=1
+--lua-desync=fake:blob=tls_google:ip_ttl=3:ip6_ttl=3 --lua-desync=multisplit:pos=3:seqovl=2
+--lua-desync=fake:blob=fake_tls --lua-desync=multisplit:pos=3:seqovl=2
+--lua-desync=fake:blob=fake_tls --lua-desync=multisplit:pos=3,midsld-1:seqovl=652:seqovl_pattern=tls7
+--lua-desync=fake:blob=fake_tls:tcp_flags_unset=ack:tls_mod=rnd,rndsni,padencap --lua-desync=fakeddisorder:pos=midsld:tcp_flags_unset=ack
+--lua-desync=fake:blob=fake_tls:ip_ttl=1:ip6_ttl=1:tls_mod=rnd,rndsni,padencap --lua-desync=multisplit:pos=1,midsld
+--lua-desync=fake:blob=tls_google:tcp_ack=-66000 --lua-desync=multisplit:pos=1,sld+1:seqovl=1:tcp_ack=-66000
+--lua-desync=fakedsplit:pos=3:pattern=0x00
+--lua-desync=fakedsplit:pos=1:tcp_ack=-66000:repeats=10:ip_ttl=4:ip6_ttl=4
+
+[circular_multidisorder]
+name = Circular MultiDisorder (15 strategies)
+author = zapret
+label = recommended
+description = MultiDisorder стратегии с различными позициями разреза и параметрами
+blobs = fake_tls, tls_google, tls5
+--out-range=-d1000
+--in-range=-s5556
+--lua-desync=circular:fails=1:time=300:retrans=3:nld=2
+--out-range=-d10
+--payload=tls_client_hello
+--lua-desync=pass
+--lua-desync=multidisorder:pos=1,midsld
+--lua-desync=multidisorder:pos=midsld-1:seqovl=1
+--lua-desync=multidisorder:seqovl=211:seqovl_pattern=tls5
+--lua-desync=multidisorder:pos=1,midsld:ip_autottl=-1,3-20:ip6_autottl=-1,3-20
+--lua-desync=multidisorder:pos=1,host+2,sld+2,sld+5,sniext+1,sniext+2,endhost-2:seqovl=1
+--lua-desync=multidisorder:pos=midsld,midsld+2:seqovl=1:tcp_ack=-66000:repeats=10
+--lua-desync=multidisorder:pos=100,midsld,sniext+1,endhost-2,-10
+--lua-desync=fake:blob=fake_tls:repeats=6:tcp_ack=-66000 --lua-desync=multidisorder:pos=1,midsld:tcp_ack=-66000
+--lua-desync=fake:blob=fake_tls:repeats=6:tcp_md5 --lua-desync=multidisorder:pos=1,midsld:tcp_md5
+--lua-desync=fake:blob=fake_tls:tcp_ack=-66000:repeats=6:tls_mod=rnd,dupsid,sni=www.google.com --lua-desync=multidisorder:pos=1,midsld:tcp_ack=-66000
+--lua-desync=fake:blob=tls_google:repeats=15:ip_ttl=0:ip6_ttl=0:badsum:tcp_ack=-66000:tcp_ts_up --lua-desync=multidisorder:pos=method+2,midsld,5
+--lua-desync=fake:blob=fake_tls:repeats=11:tcp_md5 --lua-desync=multidisorder:pos=1,midsld:tcp_md5
+--lua-desync=fake:blob=tls_google:repeats=11:tcp_md5 --lua-desync=multidisorder:pos=1,midsld:tcp_md5
+--lua-desync=fake:blob=fake_tls:badsum --lua-desync=multidisorder:pos=1:badsum
+--lua-desync=syndata --lua-desync=multidisorder:pos=1,midsld
+
+[circular_syndata]
+name = Circular SynData (15 strategies)
+author = zapret
+label = caution
+description = Чистые SynData стратегии с различными blob и параметрами TTL, tcp_ack, tcp_md5
+blobs = tls_google, tls4, tls7, syndata3, tls_vk_kyber
+--out-range=-d1000
+--in-range=-s5556
+--lua-desync=circular:fails=1:time=300:retrans=3:nld=2
+--out-range=-d10
+--payload=tls_client_hello
+--lua-desync=pass
+--lua-desync=syndata
+--lua-desync=send:repeats=2 --lua-desync=syndata:blob=tls7
+--lua-desync=send:repeats=3 --lua-desync=syndata:blob=tls_google
+--lua-desync=send:repeats=2 --lua-desync=syndata:blob=tls_google --lua-desync=multidisorder:seqovl=700:seqovl_pattern=tls_google:tcp_flags_unset=ack
+--lua-desync=send:repeats=2 --lua-desync=syndata:blob=tls_google --lua-desync=multisplit:pos=midsld
+--lua-desync=send:repeats=2 --lua-desync=syndata:blob=tls_max --lua-desync=multisplit:pos=midsld
+--lua-desync=send:repeats=2 --lua-desync=syndata:blob=tls_google --lua-desync=multidisorder_legacy:pos=1,midsld
+--lua-desync=syndata:ip_ttl=5:ip6_ttl=5
+--lua-desync=syndata:ip_autottl=-1,3-20:ip6_autottl=-1,3-20
+--lua-desync=syndata:tcp_md5
+--lua-desync=syndata:tcp_ack=-66000:tcp_ts_up
+--lua-desync=syndata:blob=tls_google
+--lua-desync=syndata:blob=tls_google:ip_autottl=-1,3-20:ip6_autottl=-1,3-20
+--lua-desync=syndata:blob=tls_google:tcp_md5
+--lua-desync=syndata:blob=tls4:ip_autottl=-1,3-20:ip6_autottl=-1,3-20
+--lua-desync=syndata:blob=tls4:tcp_ack=-66000:tcp_ts_up
+--lua-desync=syndata:blob=tls7
+--lua-desync=syndata:blob=tls7:tcp_md5
+--lua-desync=syndata:blob=syndata3:ip_autottl=-1,3-20:ip6_autottl=-1,3-20
+--lua-desync=syndata:blob=syndata3:ip_ttl=5:ip6_ttl=5
+--lua-desync=syndata:blob=tls_vk_kyber:tcp_md5
+
+[circular_syndata_combo]
+name = Circular SynData+MultiDisorder (15 strategies)
+author = zapret
+label = caution
+description = Combo: syndata прикрытие + multidisorder основная атака
+blobs = tls_google, tls7, tls_vk_kyber
+--out-range=-d1000
+--in-range=-s5556
+--lua-desync=circular:fails=1:time=300:retrans=3:nld=2
+--out-range=-d10
+--payload=tls_client_hello
+--lua-desync=pass
+--lua-desync=syndata:ip_autottl=-1,3-20:ip6_autottl=-1,3-20 --lua-desync=multidisorder:pos=1,midsld:ip_autottl=-1,3-20:ip6_autottl=-1,3-20
+--lua-desync=syndata:blob=tls_google --lua-desync=multidisorder:pos=1,midsld
+--lua-desync=syndata:blob=tls_google:tcp_md5 --lua-desync=multidisorder:pos=1,midsld:tcp_md5
+--lua-desync=syndata:blob=tls_google:tcp_ack=-66000 --lua-desync=multidisorder:pos=1,midsld:tcp_ack=-66000
+--lua-desync=syndata:blob=tls_google:repeats=11:tcp_ack=-66000:tcp_ts_up --lua-desync=multidisorder:pos=3
+--lua-desync=syndata:blob=tls7 --lua-desync=multidisorder:pos=1,midsld
+--lua-desync=syndata:blob=tls7:tcp_md5 --lua-desync=multidisorder:pos=1,midsld:tcp_md5
+--lua-desync=syndata:blob=tls7 --lua-desync=multidisorder:pos=midsld-1:seqovl=1
+--lua-desync=syndata:blob=tls_vk_kyber:tcp_md5 --lua-desync=multidisorder:pos=1,midsld:tcp_md5
+--lua-desync=syndata:blob=tls_vk_kyber:tcp_md5 --lua-desync=multidisorder:pos=4:repeats=10:tcp_md5
+--lua-desync=syndata --lua-desync=multidisorder:pos=1,host+2,sld+2,sld+5,sniext+1,sniext+2,endhost-2:seqovl=1
+--lua-desync=syndata:tcp_md5 --lua-desync=multidisorder:pos=midsld,midsld+2:seqovl=1:tcp_md5
+--lua-desync=syndata --lua-desync=multidisorder:pos=1,midsld
+--lua-desync=syndata:tcp_md5 --lua-desync=multidisorder:pos=1,midsld:tcp_md5
+--lua-desync=syndata:tcp_ack=-66000 --lua-desync=multidisorder:pos=1,midsld:tcp_ack=-66000
+
+[circular_tls_custom]
+name = Circular TLS Custom Functions (20 strategies)
+author = zapret
+label = experimental
+description = Кастомные TLS функции из custom_funcs.lua: tls_aggressive, tls_multisplit_sni, tls_fake_flood и др.
+blobs = fake_tls, tls_google, tls7
+--out-range=-d1000
+--in-range=-s5556
+--lua-desync=circular:fails=1:time=300:retrans=3:nld=2
+--out-range=-d10
+--payload=tls_client_hello
+--lua-desync=pass
+--lua-desync=tls_aggressive
+--lua-desync=tls_aggressive:tcp_md5
+--lua-desync=tls_aggressive:tcp_ack=-66000
+--lua-desync=tls_multisplit_sni
+--lua-desync=tls_multisplit_sni:tcp_md5
+--lua-desync=tls_multisplit_sni:seqovl=680:sni=www.google.com
+--lua-desync=tls_fake_flood
+--lua-desync=tls_fake_flood:blob=fake_tls:repeats=6
+--lua-desync=tls_fake_flood:blob=tls_google:repeats=10
+--lua-desync=tls_fake_simple
+--lua-desync=tls_fake_simple:blob=fake_tls:tcp_md5
+--lua-desync=tls_fake_simple:blob=tls_google:tcp_ack=-66000
+--lua-desync=tls_split_gentle
+--lua-desync=tls_split_gentle:tcp_md5
+--lua-desync=tls_fake_split
+--lua-desync=tls_fake_split:blob=fake_tls
+--lua-desync=tls_disorder_gentle
+--lua-desync=tls_disorder_gentle:tcp_md5
+--lua-desync=tls_fake_disorder_gentle
+--lua-desync=tls_fake_disorder_gentle:blob=fake_tls:tcp_md5

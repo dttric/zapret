@@ -1,0 +1,425 @@
+[circular_http_basic]
+name = Circular HTTP Basic (12 strategies)
+author = zapret
+label = recommended
+description = Базовые HTTP стратегии: multisplit, multidisorder, fake
+blobs = fake_tls
+--out-range=-d10
+--in-range=-s5556
+--lua-desync=circular:fails=1:time=300:retrans=3:nld=2
+--out-range=-d10
+--payload=http_req
+--lua-desync=pass
+--lua-desync=multisplit:pos=host+1
+--lua-desync=multisplit:pos=method+2
+--lua-desync=multisplit:pos=host+1,method+2
+--lua-desync=multidisorder:pos=host+1
+--lua-desync=multidisorder:pos=method+2
+--lua-desync=multidisorder:pos=host+1,method+2
+--lua-desync=fakedsplit:pos=host+1:ip_ttl=3:ip6_ttl=3
+--lua-desync=fakedsplit:pos=method+2:ip_ttl=3:ip6_ttl=3
+--lua-desync=fake:blob=fake_tls:repeats=6:ip_ttl=2:ip6_ttl=2
+--lua-desync=fake:blob=fake_tls:repeats=6:tcp_md5
+--lua-desync=fake:blob=fake_tls:repeats=6:tcp_ack=-66000
+--lua-desync=syndata
+
+[circular_http_custom]
+name = Circular HTTP Custom Functions (20 strategies)
+author = zapret
+label = experimental
+description = Кастомные HTTP функции из custom_funcs.lua
+--out-range=-d10
+--in-range=-s5556
+--lua-desync=circular:fails=1:time=300:retrans=3:nld=2
+--out-range=-d10
+--payload=http_req
+--lua-desync=pass
+--lua-desync=http_aggressive
+--lua-desync=http_aggressive:tcp_md5
+--lua-desync=http_multidisorder
+--lua-desync=http_multidisorder:tcp_md5
+--lua-desync=http_seqovl_host
+--lua-desync=http_seqovl_host:fake_host=www.google.com
+--lua-desync=http_garbage_prefix
+--lua-desync=http_garbage_prefix:mode=mixed:amount=20
+--lua-desync=http_hostmod
+--lua-desync=http_hostmod:mode=mixedcase
+--lua-desync=http_methodeol_v2
+--lua-desync=http_methodeol_hostcase
+--lua-desync=http_triple_seqovl
+--lua-desync=http_host_bytesplit
+--lua-desync=http_pipeline_fake
+--lua-desync=http_header_shuffle
+--lua-desync=http_absolute_url
+--lua-desync=http_combo_bypass
+--lua-desync=http_simple_bypass
+--lua-desync=http_mgts_combo
+
+[circular_http_prefix]
+name = Circular HTTP Prefix Methods (15 strategies)
+author = zapret
+label = experimental
+description = HTTP методы с префиксами: garbage, space, tab, lf, oob
+--out-range=-d10
+--in-range=-s5556
+--lua-desync=circular:fails=1:time=300:retrans=3:nld=2
+--out-range=-d10
+--payload=http_req
+--lua-desync=pass
+--lua-desync=http_garbage_prefix
+--lua-desync=http_garbage_prefix:mode=mixed:amount=10
+--lua-desync=http_garbage_prefix:mode=mixed:amount=20
+--lua-desync=http_garbage_prefix:mode=mixed:amount=50
+--lua-desync=http_space_prefix
+--lua-desync=http_lf_prefix
+--lua-desync=http_tab_prefix
+--lua-desync=http_oob_prefix
+--lua-desync=http_xpadding
+--lua-desync=http_xpadding:amount=100
+--lua-desync=http_multi_crlf
+--lua-desync=http_mixed_prefix
+--lua-desync=http_fake_xhost
+--lua-desync=http_inject_safe_header
+--lua-desync=http_methodeol_safe
+
+[circular_http_syndata]
+name = Circular HTTP SynData (10 strategies)
+author = zapret
+label = caution
+description = HTTP с syndata прикрытием
+blobs = tls_google
+--out-range=-d10
+--in-range=-s5556
+--lua-desync=circular:fails=1:time=300:retrans=3:nld=2
+--out-range=-d10
+--payload=http_req
+--lua-desync=pass
+--lua-desync=http_syndata
+--lua-desync=http_syndata:tcp_md5
+--lua-desync=http_syndata:tcp_ack=-66000
+--lua-desync=syndata --lua-desync=multisplit:pos=host+1
+--lua-desync=syndata --lua-desync=multidisorder:pos=host+1
+--lua-desync=syndata:tcp_md5 --lua-desync=multisplit:pos=host+1:tcp_md5
+--lua-desync=syndata:blob=tls_google --lua-desync=multisplit:pos=host+1
+--lua-desync=syndata:ip_autottl=-1,3-20:ip6_autottl=-1,3-20 --lua-desync=multidisorder:pos=host+1:ip_autottl=-1,3-20:ip6_autottl=-1,3-20
+--lua-desync=syndata --lua-desync=http_aggressive
+--lua-desync=syndata:tcp_md5 --lua-desync=http_multidisorder:tcp_md5
+
+[circular_http_combo]
+name = Circular HTTP Fake+Split Combo (12 strategies)
+author = zapret
+label = recommended
+description = HTTP combo: fake прикрытие + split/disorder атака
+blobs = fake_tls
+--out-range=-d10
+--in-range=-s5556
+--lua-desync=circular:fails=1:time=300:retrans=3:nld=2
+--out-range=-d10
+--payload=http_req
+--lua-desync=pass
+--lua-desync=fake:blob=fake_tls:repeats=6:ip_ttl=2:ip6_ttl=2 --lua-desync=multisplit:pos=host+1
+--lua-desync=fake:blob=fake_tls:repeats=6:tcp_md5 --lua-desync=multisplit:pos=host+1:tcp_md5
+--lua-desync=fake:blob=fake_tls:repeats=6:tcp_ack=-66000 --lua-desync=multidisorder:pos=host+1:tcp_ack=-66000
+--lua-desync=fake:blob=fake_tls:ip_ttl=3:ip6_ttl=3 --lua-desync=fakedsplit:pos=host+1:ip_ttl=3:ip6_ttl=3
+--lua-desync=fake:blob=fake_tls:tcp_md5 --lua-desync=multidisorder:pos=host+1,method+2:tcp_md5
+--lua-desync=fake:blob=fake_tls:badsum --lua-desync=multisplit:pos=host+1:badsum
+--lua-desync=fake:blob=fake_tls --lua-desync=http_aggressive
+--lua-desync=fake:blob=fake_tls:tcp_md5 --lua-desync=http_multidisorder:tcp_md5
+--lua-desync=fake:blob=fake_tls --lua-desync=http_seqovl_host
+--lua-desync=fake:blob=fake_tls:repeats=10 --lua-desync=http_garbage_prefix
+--lua-desync=fake:blob=fake_tls:ip_autottl=-1,3-20:ip6_autottl=-1,3-20 --lua-desync=http_hostmod
+--lua-desync=fake:blob=fake_tls --lua-desync=http_combo_bypass
+
+[circular_http_fakeddisorder]
+name = Circular HTTP FakedDisorder (15 strategies)
+author = zapret
+label = recommended
+description = FakedDisorder стратегии с разными TTL, seqovl, позициями
+--out-range=-d10
+--in-range=-s5556
+--lua-desync=circular:fails=1:time=300:retrans=3:nld=2
+--out-range=-d10
+--payload=http_req
+--lua-desync=pass
+--lua-desync=fakeddisorder:pos=host+1:ip_autottl=0,3-20:ip6_autottl=0,3-20
+--lua-desync=fakeddisorder:pos=host+1:ip_autottl=0,3-20:ip6_autottl=0,3-20:tcp_md5
+--lua-desync=fakeddisorder:pos=host+1:ip_ttl=1:ip6_ttl=1
+--lua-desync=fakeddisorder:pos=host+1:ip_ttl=2:ip6_ttl=2:tcp_md5
+--lua-desync=fakeddisorder:pos=host+1:tcp_seq=-10000:ip_autottl=0,3-20:ip6_autottl=0,3-20
+--lua-desync=fakeddisorder:pos=host+1:seqovl=2:ip_autottl=0,3-20:ip6_autottl=0,3-20
+--lua-desync=fakeddisorder:pos=method+2,host+1:ip_autottl=0,3-20:ip6_autottl=0,3-20:tcp_md5
+--lua-desync=fakeddisorder:pos=1,method+2,host+1:seqovl=2:ip_ttl=2:ip6_ttl=2:tcp_md5
+--lua-desync=fakedsplit:pos=host+1:ip_autottl=2,3-20:ip6_autottl=2,3-20:tcp_md5
+--lua-desync=fakedsplit:pos=method+2:ip_autottl=0,3-20:ip6_autottl=0,3-20
+--lua-desync=fake:blob=fake_default_http:repeats=4:ip_ttl=1:ip6_ttl=1 --lua-desync=fakeddisorder:pos=host+1:ip_autottl=0,3-20:ip6_autottl=0,3-20
+--lua-desync=syndata --lua-desync=fakeddisorder:pos=host+1:ip_autottl=0,3-20:ip6_autottl=0,3-20
+--lua-desync=fake:blob=fake_default_http:repeats=6:ip_ttl=1:ip6_ttl=1 --lua-desync=multidisorder:pos=host+1,method+2
+--lua-desync=fake:blob=fake_default_http:repeats=11:ip_ttl=1:ip6_ttl=1:tcp_md5 --lua-desync=multidisorder:pos=1,host+1,method+2
+--lua-desync=fake:blob=fake_default_http:repeats=8:badsum:ip_ttl=1:ip6_ttl=1 --lua-desync=multidisorder:pos=host+1
+
+[circular_http_mgts]
+name = Circular HTTP МГТС (12 strategies)
+author = zapret
+label = recommended
+description = Специально для МГТС: autottl, badseq, syndata, combo
+--out-range=-d10
+--in-range=-s5556
+--lua-desync=circular:fails=1:time=300:retrans=3:nld=2
+--out-range=-d10
+--payload=http_req
+--lua-desync=pass
+--lua-desync=fake:blob=fake_default_http:repeats=6:ip_autottl=2,3-20:ip6_autottl=2,3-20:tcp_md5 --lua-desync=multidisorder:pos=host+1
+--lua-desync=fake:blob=fake_default_http:repeats=6:tcp_ack=-66000:tcp_ts_up:ip_autottl=2,3-20:ip6_autottl=2,3-20 --lua-desync=multidisorder:pos=host+1,method+2
+--lua-desync=syndata:ip_autottl=2,3-20:ip6_autottl=2,3-20 --lua-desync=multidisorder:pos=host+1
+--lua-desync=syndata --lua-desync=fake:blob=fake_default_http:repeats=4:ip_autottl=2,3-20:ip6_autottl=2,3-20:tcp_md5 --lua-desync=multidisorder:pos=host+1
+--lua-desync=fake:blob=fake_default_http:repeats=10:badsum:ip_ttl=2:ip6_ttl=2 --lua-desync=multidisorder:pos=1,host+1:seqovl=3
+--lua-desync=fake:blob=fake_default_http:repeats=5:tcp_seq=-100000:ip_ttl=1:ip6_ttl=1 --lua-desync=fake:blob=fake_default_http:repeats=5:tcp_seq=-50000:ip_ttl=2:ip6_ttl=2 --lua-desync=multidisorder:pos=host+1,method+2:seqovl=2
+--lua-desync=fake:blob=fake_default_http:repeats=5:badsum --lua-desync=fake:blob=fake_default_http:repeats=5:tcp_seq=-100000 --lua-desync=fake:blob=fake_default_http:repeats=5:tcp_ack=-100000:tcp_ts_up --lua-desync=multidisorder:pos=1,host+1,sld+1:seqovl=3
+--lua-desync=http_mgts_combo:fake_host=www.google.com
+--lua-desync=fake:blob=fake_default_http:repeats=6:badsum --lua-desync=multidisorder:pos=host+1
+--lua-desync=fake:blob=fake_default_http:repeats=6:badsum:tcp_seq=-50000 --lua-desync=multidisorder:pos=host+1
+--lua-desync=fake:blob=fake_default_http:repeats=8:tcp_seq=-100000:ip_ttl=3:ip6_ttl=3 --lua-desync=multidisorder:pos=host+1
+--lua-desync=fake:blob=fake_default_http:repeats=6:tcp_ack=-100000:tcp_ts_up --lua-desync=multidisorder:pos=host+1
+
+[circular_http_porno365]
+name = Circular HTTP Porno365 (15 strategies)
+author = zapret
+label = caution
+description = Для porno365 и упорных DPI: flood, split, seqovl
+--out-range=-d10
+--in-range=-s5556
+--lua-desync=circular:fails=1:time=300:retrans=3:nld=2
+--out-range=-d10
+--payload=http_req
+--lua-desync=pass
+--lua-desync=syndata --lua-desync=fake:blob=fake_default_http:repeats=4:ip_ttl=1:ip6_ttl=1 --lua-desync=multidisorder:pos=host+1
+--lua-desync=fake:blob=fake_default_http:repeats=3:ip_ttl=1:ip6_ttl=1 --lua-desync=fake:blob=fake_default_http:repeats=3:ip_ttl=2:ip6_ttl=2 --lua-desync=fake:blob=fake_default_http:repeats=3:ip_ttl=3:ip6_ttl=3 --lua-desync=multidisorder:pos=host+1
+--lua-desync=fake:blob=fake_default_http:repeats=6:ip_ttl=1:ip6_ttl=1:tcp_md5 --lua-desync=multidisorder:pos=1,3,method+2,host+1,sld+1:seqovl=2
+--lua-desync=fake:blob=fake_default_http:repeats=8:ip_ttl=1:ip6_ttl=1:tcp_md5 --lua-desync=multidisorder:pos=1,method+2,host+1
+--lua-desync=fake:blob=fake_default_http:repeats=20:ip_ttl=1:ip6_ttl=1:tcp_md5 --lua-desync=multidisorder:pos=host+1
+--lua-desync=fake:blob=fake_default_http:repeats=30:ip_ttl=1:ip6_ttl=1:badsum:tcp_md5 --lua-desync=http_methodeol_safe --lua-desync=multidisorder:pos=1,host+1,midsld
+--lua-desync=http_pipeline_fake_v2:fake_host=www.google.com:badsum --lua-desync=multidisorder:pos=host+1
+--lua-desync=fake:blob=fake_default_http:repeats=20:ip_ttl=1:ip6_ttl=1:badsum --lua-desync=http_garbage_prefix:mode=crlf:amount=30 --lua-desync=http_header_shuffle:fake_host=www.google.com --lua-desync=multidisorder:pos=1,host+1
+--lua-desync=fake:blob=fake_default_http:repeats=50:ip_ttl=1:ip6_ttl=1:badsum:tcp_md5 --lua-desync=http_garbage_prefix:mode=mixed:amount=50 --lua-desync=http_simple_bypass:prefix=\r\n:hostcase=HoSt --lua-desync=multidisorder:pos=1,host+1,midsld:seqovl=2
+--lua-desync=http_aggressive:fakes=5:ttl_start=1:ttl_step=1:split_host:disorder
+--lua-desync=http_aggressive:fakes=3:ttl_start=1
+--lua-desync=http_aggressive:fakes=10:ttl_start=1:ttl_step=2:split_host:disorder
+--lua-desync=fake:blob=fake_default_http:repeats=4:badsum --lua-desync=fake:blob=fake_default_http:repeats=4:tcp_seq=-50000 --lua-desync=fake:blob=fake_default_http:repeats=4:ip_ttl=1:ip6_ttl=1 --lua-desync=multidisorder:pos=host+1
+--lua-desync=fake:blob=fake_default_http:repeats=5:ip_ttl=1:ip6_ttl=1 --lua-desync=http_multidisorder
+
+[circular_http_seqovl]
+name = Circular HTTP SeqOvl Attack (12 strategies)
+author = zapret
+label = recommended
+description = SeqOvl атаки на Host: DPI видит google, сервер - реальный хост
+--out-range=-d10
+--in-range=-s5556
+--lua-desync=circular:fails=1:time=300:retrans=3:nld=2
+--out-range=-d10
+--payload=http_req
+--lua-desync=pass
+--lua-desync=http_seqovl_host
+--lua-desync=http_seqovl_host:fake_host=porno365.test
+--lua-desync=http_seqovl_host:fake_host=www.google.com
+--lua-desync=http_seqovl_host:fake_host=www.yandex.ru
+--lua-desync=http_triple_seqovl:fake_host=www.google.com
+--lua-desync=http_seqovl_host:fake_host=www.google.com --lua-desync=multidisorder:pos=method+2,host+1
+--lua-desync=http_ipfrag:frag_size=24
+--lua-desync=http_ipfrag:frag_size=8
+--lua-desync=http_ipfrag:frag_size=24 --lua-desync=http_seqovl_host:fake_host=google.com
+--lua-desync=http_hostmod:case=lower
+--lua-desync=http_hostmod:case=upper
+--lua-desync=http_hostmod:case=mixed
+--lua-desync=http_absolute_url:fake_host=www.google.com
+--lua-desync=http_header_shuffle:fake_host=www.google.com
+
+[circular_http_experimental]
+name = Circular HTTP Experimental (20 strategies)
+author = zapret
+label = experimental
+description = Экспериментальный: method obfuscate, version downgrade, mega flood
+--out-range=-d10
+--in-range=-s5556
+--lua-desync=circular:fails=1:time=300:retrans=3:nld=2
+--out-range=-d10
+--payload=http_req
+--lua-desync=pass
+--lua-desync=http_method_obfuscate:method=case --lua-desync=multidisorder:pos=host+1
+--lua-desync=http_method_obfuscate:method=lowercase --lua-desync=multisplit:pos=host+1
+--lua-desync=http_version_downgrade --lua-desync=multidisorder:pos=host+1
+--lua-desync=http_version_downgrade --lua-desync=multisplit:pos=method+2,host+1
+--lua-desync=http_fake_continuation --lua-desync=multidisorder:pos=host+1
+--lua-desync=http_absolute_uri_v2:fake_host=www.google.com --lua-desync=multidisorder:pos=host+1
+--lua-desync=fake:blob=fake_default_http:repeats=100:ip_ttl=1:ip6_ttl=1:badsum --lua-desync=multidisorder:pos=host+1
+--lua-desync=fake:blob=fake_default_http:repeats=50:badsum:tcp_md5 --lua-desync=multisplit:pos=1,host+1,midsld:oob
+--lua-desync=fake:blob=fake_default_http:repeats=80:ip_ttl=1:ip6_ttl=1 --lua-desync=http_method_obfuscate:method=case --lua-desync=multidisorder:pos=host+1
+--lua-desync=http_oob_prefix --lua-desync=fake:blob=fake_default_http:repeats=20:badsum --lua-desync=multisplit:pos=host+1
+--lua-desync=http_mixed_prefix --lua-desync=fake:blob=fake_default_http:repeats=30:ip_ttl=2:ip6_ttl=2 --lua-desync=multidisorder:pos=host+1
+--lua-desync=http_xpadding --lua-desync=fake:blob=fake_default_http:repeats=40:badsum --lua-desync=multidisorder:pos=1,host+1
+--lua-desync=http_inject_safe_header --lua-desync=fake:blob=fake_default_http:repeats=25:ip_ttl=1:ip6_ttl=1 --lua-desync=multisplit:pos=host+1:seqovl=3
+--lua-desync=http_multi_crlf:count=10 --lua-desync=fake:blob=fake_default_http:repeats=30:badsum:tcp_seq=-100000 --lua-desync=multidisorder:pos=host+1
+--lua-desync=http_combo_bypass:fake_host=www.google.com:repeats=50:prefix=\r\n:hostcase=HoSt
+--lua-desync=http_simple_bypass:prefix=\r\n\r\n:hostcase=HoSt --lua-desync=fake:blob=fake_default_http:repeats=60:badsum --lua-desync=multidisorder:pos=host+1
+--lua-desync=http_fake_xhost:fake_host=www.google.com --lua-desync=fake:blob=fake_default_http:repeats=40:ip_ttl=1:ip6_ttl=1 --lua-desync=multidisorder:pos=1,method+2,host+1
+--lua-desync=fake:blob=fake_default_http:repeats=30:tcp_ack=-200000:tcp_ts_up --lua-desync=fake:blob=fake_default_http:repeats=30:tcp_seq=-200000 --lua-desync=multidisorder:pos=host+1:seqovl=5
+--lua-desync=http_methodeol_safe --lua-desync=http_hostmod:mode=mixedcase --lua-desync=fake:blob=fake_default_http:repeats=40:badsum --lua-desync=multidisorder:pos=1,host+1,midsld
+
+[circular_http_stealth]
+name = Circular HTTP Stealth (15 strategies)
+author = zapret
+label = experimental
+description = Скрытные техники: модификация без фейков, минимальные изменения
+--out-range=-d10
+--in-range=-s5556
+--lua-desync=circular:fails=1:time=300:retrans=3:nld=2
+--out-range=-d10
+--payload=http_req
+--lua-desync=pass
+--lua-desync=http_methodeol_safe
+--lua-desync=http_space_prefix
+--lua-desync=http_lf_prefix
+--lua-desync=http_tab_prefix
+--lua-desync=http_xpadding
+--lua-desync=http_multi_crlf:count=3
+--lua-desync=http_multi_crlf:count=5
+--lua-desync=http_mixed_prefix
+--lua-desync=http_inject_safe_header
+--lua-desync=http_simple_bypass:prefix=\r\n:hostcase=HoSt
+--lua-desync=http_simple_bypass:prefix=\r\n\r\n:hostcase=HoSt
+--lua-desync=http_hostmod:case=mixed
+--lua-desync=http_method_obfuscate:method=case
+--lua-desync=http_version_downgrade
+--lua-desync=multisplit:pos=host+1:oob
+
+[circular_http_mega_flood]
+name = Circular HTTP Mega Flood (10 strategies)
+author = zapret
+label = caution
+description = Максимальный флуд фейками: 50-200 пакетов
+--out-range=-d10
+--in-range=-s5556
+--lua-desync=circular:fails=1:time=300:retrans=3:nld=2
+--out-range=-d10
+--payload=http_req
+--lua-desync=pass
+--lua-desync=fake:blob=fake_default_http:repeats=50:ip_ttl=1:ip6_ttl=1:badsum --lua-desync=multidisorder:pos=host+1
+--lua-desync=fake:blob=fake_default_http:repeats=100:ip_ttl=1:ip6_ttl=1:badsum --lua-desync=multidisorder:pos=host+1
+--lua-desync=fake:blob=fake_default_http:repeats=150:ip_ttl=1:ip6_ttl=1:badsum --lua-desync=multidisorder:pos=host+1
+--lua-desync=fake:blob=fake_default_http:repeats=200:ip_ttl=1:ip6_ttl=1:badsum --lua-desync=multidisorder:pos=host+1
+--lua-desync=fake:blob=fake_default_http:repeats=50:badsum:tcp_md5 --lua-desync=multisplit:pos=host+1,method+2
+--lua-desync=fake:blob=fake_default_http:repeats=100:badsum:tcp_md5 --lua-desync=multisplit:pos=1,host+1,midsld
+--lua-desync=fake:blob=fake_default_http:repeats=50:tcp_seq=-100000:badsum --lua-desync=multidisorder:pos=host+1:seqovl=4
+--lua-desync=fake:blob=fake_default_http:repeats=100:tcp_ack=-100000:badsum --lua-desync=multidisorder:pos=host+1:seqovl=4
+--lua-desync=fake:blob=fake_default_http:repeats=75:ip_ttl=2:ip6_ttl=2:badsum --lua-desync=fake:blob=fake_default_http:repeats=75:ip_ttl=1:ip6_ttl=1:badsum --lua-desync=multidisorder:pos=host+1
+--lua-desync=fake:blob=fake_default_http:repeats=200:badsum:tcp_md5:tcp_seq=-50000 --lua-desync=multidisorder:pos=1,method+2,host+1
+
+[circular_http_hostcase_variants]
+name = Circular HTTP HostCase Variants (12 strategies)
+author = zapret
+label = experimental
+description = Варианты изменения регистра Host заголовка
+--out-range=-d10
+--in-range=-s5556
+--lua-desync=circular:fails=1:time=300:retrans=3:nld=2
+--out-range=-d10
+--payload=http_req
+--lua-desync=pass
+--lua-desync=http_hostcase:spell=HoSt
+--lua-desync=http_hostcase:spell=HOST
+--lua-desync=http_hostcase:spell=host
+--lua-desync=http_hostcase:spell=hOsT
+--lua-desync=http_hostmod:case=lower --lua-desync=multisplit:pos=host+1
+--lua-desync=http_hostmod:case=upper --lua-desync=multisplit:pos=host+1
+--lua-desync=http_hostmod:case=mixed --lua-desync=multidisorder:pos=host+1
+--lua-desync=http_domcase --lua-desync=multisplit:pos=host+1
+--lua-desync=http_simple_bypass:hostcase=hOsT
+--lua-desync=http_simple_bypass:prefix=\r\n:hostcase=HOST
+--lua-desync=fake:blob=fake_default_http:repeats=10:badsum --lua-desync=http_hostmod:case=mixed --lua-desync=multidisorder:pos=host+1
+--lua-desync=http_methodeol_hostcase --lua-desync=multisplit:pos=host+1
+
+[circular_http_porno365_aggressive]
+name = Circular Porno365 Aggressive (25 strategies)
+author = zapret
+label = caution
+description = Специально для porno365: агрессивные техники с фейками, badsum, split
+--out-range=-d10
+--in-range=-s5556
+--lua-desync=circular:fails=1:time=300:retrans=3:nld=2
+--out-range=-d10
+--payload=http_req
+--lua-desync=pass
+--lua-desync=fake:blob=fake_default_http:repeats=50:ip_ttl=1:ip6_ttl=1:badsum --lua-desync=multidisorder:pos=host+1
+--lua-desync=fake:blob=fake_default_http:repeats=30:badsum:tcp_md5 --lua-desync=multisplit:pos=host+1:tcp_md5
+--lua-desync=fake:blob=fake_default_http:repeats=20:ip_ttl=2:ip6_ttl=2:badsum --lua-desync=fakedsplit:pos=host+1:ip_ttl=2:ip6_ttl=2
+--lua-desync=syndata --lua-desync=multidisorder:pos=host+1
+--lua-desync=syndata:tcp_md5 --lua-desync=multisplit:pos=host+1:tcp_md5
+--lua-desync=fake:blob=fake_default_http:repeats=100:badsum --lua-desync=multidisorder:pos=1,host+1:seqovl=2
+--lua-desync=fake:blob=fake_default_http:repeats=40:tcp_seq=-100000:badsum --lua-desync=multidisorder:pos=host+1
+--lua-desync=fake:blob=fake_default_http:repeats=40:tcp_ack=-100000:tcp_ts_up:badsum --lua-desync=multidisorder:pos=host+1
+--lua-desync=http_methodeol_safe --lua-desync=fake:blob=fake_default_http:repeats=30:badsum --lua-desync=multidisorder:pos=host+1
+--lua-desync=http_xpadding --lua-desync=fake:blob=fake_default_http:repeats=25:badsum --lua-desync=multisplit:pos=host+1
+--lua-desync=http_simple_bypass:prefix=\r\n:hostcase=HoSt --lua-desync=fake:blob=fake_default_http:repeats=30:badsum
+--lua-desync=http_garbage_prefix:mode=crlf:amount=30 --lua-desync=fake:blob=fake_default_http:repeats=20:badsum --lua-desync=multidisorder:pos=host+1
+--lua-desync=fakeddisorder:pos=host+1:ip_ttl=2:ip6_ttl=2:tcp_md5
+--lua-desync=fakeddisorder:pos=host+1:seqovl=4:ip_autottl=0,3-20:ip6_autottl=0,3-20
+--lua-desync=fakedsplit:pos=host+1:ip_autottl=2,3-20:ip6_autottl=2,3-20:tcp_md5
+--lua-desync=http_combo_bypass:fake_host=www.google.com:repeats=30:hostcase=HoSt
+--lua-desync=http_pipeline_fake_v2:fake_host=www.google.com:badsum --lua-desync=multidisorder:pos=host+1
+--lua-desync=http_seqovl_host:fake_host=www.google.com --lua-desync=fake:blob=fake_default_http:repeats=20:badsum
+--lua-desync=http_triple_seqovl:fake_host=www.google.com --lua-desync=multidisorder:pos=host+1
+--lua-desync=http_header_shuffle:fake_host=www.google.com --lua-desync=fake:blob=fake_default_http:repeats=25:badsum --lua-desync=multidisorder:pos=host+1
+--lua-desync=http_absolute_uri_v2:fake_host=www.google.com --lua-desync=fake:blob=fake_default_http:repeats=20:badsum --lua-desync=multidisorder:pos=host+1
+--lua-desync=http_fake_xhost:fake_host=www.google.com --lua-desync=fake:blob=fake_default_http:repeats=30:ip_ttl=1:ip6_ttl=1:badsum --lua-desync=multidisorder:pos=1,host+1
+--lua-desync=fake:blob=fake_default_http:repeats=20:badsum --lua-desync=fake:blob=fake_default_http:repeats=20:tcp_seq=-50000 --lua-desync=fake:blob=fake_default_http:repeats=20:tcp_ack=-50000:tcp_ts_up --lua-desync=multidisorder:pos=host+1:seqovl=3
+--lua-desync=http_ipfrag:frag_size=24 --lua-desync=fake:blob=fake_default_http:repeats=15:badsum --lua-desync=multidisorder:pos=host+1
+
+[circular_http_syndata_heavy]
+name = Circular HTTP SynData Heavy (15 strategies)
+author = zapret
+label = caution
+description = Тяжёлые syndata комбинации с фейками
+--out-range=-d10
+--in-range=-s5556
+--lua-desync=circular:fails=1:time=300:retrans=3:nld=2
+--out-range=-d10
+--payload=http_req
+--lua-desync=pass
+--lua-desync=syndata --lua-desync=fake:blob=fake_default_http:repeats=30:ip_ttl=1:ip6_ttl=1:badsum --lua-desync=multidisorder:pos=host+1
+--lua-desync=syndata:tcp_md5 --lua-desync=fake:blob=fake_default_http:repeats=25:badsum:tcp_md5 --lua-desync=multisplit:pos=host+1:tcp_md5
+--lua-desync=syndata:tcp_ack=-66000 --lua-desync=fake:blob=fake_default_http:repeats=20:badsum --lua-desync=multidisorder:pos=host+1
+--lua-desync=syndata:ip_autottl=-1,3-20:ip6_autottl=-1,3-20 --lua-desync=fake:blob=fake_default_http:repeats=30:badsum --lua-desync=multidisorder:pos=host+1:seqovl=2
+--lua-desync=syndata --lua-desync=fake:blob=fake_default_http:repeats=50:badsum --lua-desync=fakeddisorder:pos=host+1:ip_ttl=2:ip6_ttl=2
+--lua-desync=syndata:tcp_md5 --lua-desync=fake:blob=fake_default_http:repeats=40:badsum:tcp_md5 --lua-desync=fakedsplit:pos=host+1:tcp_md5
+--lua-desync=syndata --lua-desync=http_combo_bypass:fake_host=www.google.com:repeats=20:hostcase=HoSt
+--lua-desync=syndata:tcp_md5 --lua-desync=http_simple_bypass:prefix=\r\n:hostcase=HoSt --lua-desync=fake:blob=fake_default_http:repeats=20:badsum:tcp_md5
+--lua-desync=syndata --lua-desync=http_garbage_prefix:mode=mixed:amount=30 --lua-desync=fake:blob=fake_default_http:repeats=15:badsum --lua-desync=multidisorder:pos=host+1
+--lua-desync=syndata --lua-desync=http_seqovl_host:fake_host=www.google.com --lua-desync=multidisorder:pos=host+1
+--lua-desync=syndata --lua-desync=http_pipeline_fake_v2:fake_host=www.google.com:badsum
+--lua-desync=syndata --lua-desync=http_header_shuffle:fake_host=www.google.com --lua-desync=fake:blob=fake_default_http:repeats=20:badsum
+--lua-desync=syndata:tcp_md5 --lua-desync=http_methodeol_safe --lua-desync=fake:blob=fake_default_http:repeats=30:badsum:tcp_md5 --lua-desync=multidisorder:pos=1,host+1
+--lua-desync=syndata --lua-desync=http_xpadding --lua-desync=fake:blob=fake_default_http:repeats=25:ip_ttl=2:ip6_ttl=2:badsum --lua-desync=multidisorder:pos=host+1
+--lua-desync=syndata:tcp_ack=-66000:tcp_ts_up --lua-desync=fake:blob=fake_default_http:repeats=35:badsum --lua-desync=multidisorder:pos=host+1:seqovl=3
+
+[circular_http_disorder_only]
+name = Circular HTTP Disorder Only (12 strategies)
+author = zapret
+label = recommended
+description = Только disorder/split без модификации payload
+--out-range=-d10
+--in-range=-s5556
+--lua-desync=circular:fails=1:time=300:retrans=3:nld=2
+--out-range=-d10
+--payload=http_req
+--lua-desync=pass
+--lua-desync=multidisorder:pos=host+1
+--lua-desync=multidisorder:pos=method+2,host+1
+--lua-desync=multidisorder:pos=1,method+2,host+1
+--lua-desync=multidisorder:pos=host+1:seqovl=2
+--lua-desync=multidisorder:pos=host+1:seqovl=4
+--lua-desync=multisplit:pos=host+1
+--lua-desync=multisplit:pos=method+2,host+1
+--lua-desync=multisplit:pos=1,host+1,midsld
+--lua-desync=multisplit:pos=host+1:seqovl=2
+--lua-desync=multisplit:pos=host+1:oob
+--lua-desync=fakeddisorder:pos=host+1:ip_autottl=0,3-20:ip6_autottl=0,3-20
+--lua-desync=fakedsplit:pos=host+1:ip_autottl=0,3-20:ip6_autottl=0,3-20

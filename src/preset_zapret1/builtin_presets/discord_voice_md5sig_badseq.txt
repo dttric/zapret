@@ -1,0 +1,52 @@
+# Preset: discord_voice_md5sig_badseq
+# Created: 2026-02-19T00:00:00
+# IconColor: #60cdff
+# Description: Imported from bat/discord_voice_md5sig_badseq.txt
+
+--wf-tcp=80,443
+--wf-udp=443,50000-50099
+
+# === Discord Voice ===
+--filter-udp=50000-50099
+--dpi-desync=fake
+
+# === HTTP (порт 80) ===
+--new
+--filter-tcp=80
+--hostlist=lists/russia-blacklist.txt
+--dpi-desync=fake,multisplit
+--dpi-desync-ttl=0
+--dpi-desync-fooling=md5sig,badsum
+
+# === HTTPS YouTube ===
+--new
+--filter-tcp=443
+--hostlist=lists/russia-blacklist.txt
+--hostlist=lists/ipset-all.txt
+--hostlist=lists/discord.txt
+--hostlist=lists/youtube.txt
+--hostlist=lists/other.txt
+--hostlist=lists/list-general.txt
+--dpi-desync=fake,multidisorder
+--dpi-desync-split-pos=method+2,midsld,5
+--dpi-desync-ttl=0
+--dpi-desync-fooling=md5sig,badsum,badseq
+--dpi-desync-repeats=15
+--dpi-desync-fake-tls=bin/tls_clienthello_www_google_com.bin
+
+# === QUIC ===
+--new
+--filter-udp=443
+--dpi-desync=fake
+--dpi-desync-repeats=15
+--dpi-desync-ttl=0
+--dpi-desync-any-protocol
+--dpi-desync-cutoff=d4
+--dpi-desync-fooling=md5sig,badsum
+--dpi-desync-fake-quic=bin/quic_initial_www_google_com.bin
+
+# === Discord Voice ===
+--new
+--filter-udp=50000-50099
+--dpi-desync=fake
+--new

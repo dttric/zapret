@@ -1,0 +1,32 @@
+# Preset: original_bolvan_v2_badsum_test
+# Created: 2026-02-19T00:00:00
+# IconColor: #60cdff
+# Description: Imported from bat/original_bolvan_v2_badsum_test.txt
+
+--wf-tcp=80,443
+
+# === Общее ===
+--ipset=lists/ipset-youtube.txt
+--dpi-desync=multidisorder
+--dpi-desync-split-seqovl=1
+--dpi-desync-split-pos=1,host+2,sld+2,sld+5,sniext+1,sniext+2,endhost-2
+
+# === HTTPS ===
+--filter-tcp=443
+--ipset=lists/cloudflare-ipset.txt
+--ipset-exclude-ip=1.1.1.1,1.0.0.1,212.109.195.93,83.220.169.155,141.105.71.21,18.244.96.0/19,18.244.128.0/19
+--dpi-desync=multisplit
+--dpi-desync-split-seqovl=286
+--dpi-desync-split-seqovl-pattern=bin/tls_clienthello_11.bin
+--dup=2
+--dup-cutoff=n3
+
+# === HTTP (порт 80) ===
+--new
+--filter-tcp=80
+--dpi-desync=fake,multisplit
+--dpi-desync-split-seqovl=2
+--dpi-desync-split-pos=host+1
+--dpi-desync-fake-http=0x0F0F0F0F
+--dpi-desync-fooling=md5sig
+--new

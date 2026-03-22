@@ -1,0 +1,10 @@
+# Preset: bystro292_3
+# Created: 2026-02-19T00:00:00
+# IconColor: #60cdff
+# Description: Imported from bat/bystro292_3.txt
+
+--wf-tcp=443
+--wf-udp=443
+
+# === Общее ===
+--wf-

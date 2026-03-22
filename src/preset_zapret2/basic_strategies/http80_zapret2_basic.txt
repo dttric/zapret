@@ -1,0 +1,931 @@
+[multisplit_seqovl700]
+name = multisplit seqovl700
+author = loop-uh
+label = experimental
+description = Потом опишу подробнее
+--lua-desync=multidisorder:seqovl=700:seqovl_pattern=tls_google:tcp_flags_unset=ack
+
+[multidisorder_complex]
+name = MultiDisorder Complex
+label = stable
+description = Сложная стратегия MultiDisorder с множественными позициями разреза
+--lua-desync=multidisorder:pos=1,host+2,sld+2,sld+5,sniext+1,sniext+2,endhost-2:seqovl=1
+
+[multisplit_midsld]
+name = multisplit midsld
+author = loop-uh
+label = experimental
+description = Потом опишу подробнее
+--lua-desync=multisplit:pos=midsld
+
+[multisplit_midsld]
+name = multisplit midsld
+author = loop-uh
+label = experimental
+description = Потом опишу подробнее
+--lua-desync=multisplit:pos=midsld
+
+[split]
+name = Split
+author = Community
+label = recommended
+description = Данные в SYN + нарезка
+--lua-desync=multisplit:pos=host+1
+
+[disorder]
+name = Disorder
+author = Community
+label = recommended
+description = Данные в SYN + out-of-order
+--lua-desync=multidisorder:pos=host+1
+
+[fake_ttl1]
+name = 🎭 Fake TTL=1
+author = Community
+description = Fake с минимальным TTL (умрёт на первом хопе)
+--lua-desync=fake:blob=fake_default_http:ip_ttl=1:ip6_ttl=1
+
+[fake_ttl1_disorder]
+name = 🎭 Fake TTL=1 + Disorder
+author = Community
+description = Fake TTL=1 + out-of-order
+--lua-desync=fake:blob=fake_default_http:ip_ttl=1:ip6_ttl=1
+--lua-desync=multidisorder:pos=host+1
+
+[fake_repeats]
+name = 🎭 Fake Repeats x5
+author = Community
+description = Множественные fake пакеты для забивания буфера DPI
+--lua-desync=fake:blob=fake_default_http:repeats=5:ip_autottl=0,3-20:ip6_autottl=0,3-20
+
+[disorder_host]
+name = 🔀 Disorder Host
+author = Community
+description = Out-of-order доставка по позиции Host (без seqovl)
+--lua-desync=multidisorder:pos=host+1
+
+[disorder_method]
+name = 🔀 Disorder Method
+author = Community
+description = Out-of-order доставка по позиции Method
+--lua-desync=multidisorder:pos=method+2,host+1
+
+[fakedsplit_host]
+name = 🎭 FakeDSplit Host
+author = Community
+label = recommended
+description = Fake + Disorder Split по Host
+--lua-desync=fakedsplit:pos=host+1:ip_autottl=0,3-20:ip6_autottl=0,3-20
+
+[fakedsplit_method]
+name = 🎭 FakeDSplit Method
+author = Community
+description = Fake + Disorder Split по Method
+--lua-desync=fakedsplit:pos=method+2:ip_autottl=0,3-20:ip6_autottl=0,3-20
+
+[fake_badseq]
+name = 🎭 Fake BadSeq
+author = Community
+description = Fake с неправильным sequence number
+--lua-desync=fake:blob=fake_default_http:tcp_seq=-10000:ip_autottl=0,3-20:ip6_autottl=0,3-20
+
+[fake_badack]
+name = 🎭 Fake BadAck
+author = Community
+description = Fake с неправильным ACK number
+--lua-desync=fake:blob=fake_default_http:tcp_ack=-66000:tcp_ts_up:ip_autottl=0,3-20:ip6_autottl=0,3-20
+
+[fake_badseq_disorder]
+name = 🎭 Fake BadSeq + Disorder
+author = Community
+label = recommended
+description = Fake с badseq + disorder split
+--lua-desync=fake:blob=fake_default_http:tcp_seq=-10000:ip_autottl=0,3-20:ip6_autottl=0,3-20
+--lua-desync=multidisorder:pos=host+1
+
+[split_simple]
+name = ✂️ Split Simple
+author = Community
+description = Простая нарезка без seqovl
+--lua-desync=multisplit:pos=host+1
+
+[split_multi]
+name = ✂️ Split Multi
+author = Community
+description = Множественная нарезка без seqovl
+--lua-desync=multisplit:pos=1,method+2,host+1,sld+1
+
+[fake_ttl_split]
+name = 🎭 Fake TTL + Split
+author = Community
+description = Fake с низким TTL + простая нарезка
+--lua-desync=fake:blob=fake_default_http:ip_ttl=3:ip6_ttl=3
+--lua-desync=multisplit:pos=host+1
+
+[fake_md5_disorder]
+name = 🎭 Fake MD5 + Disorder
+author = Community
+description = Fake с md5sig + disorder
+--lua-desync=fake:blob=fake_default_http:tcp_md5:ip_autottl=0,3-20:ip6_autottl=0,3-20
+--lua-desync=multidisorder:pos=host+1
+
+[fake_multisplit_2_fake_http]
+name = TankiX Revive
+author = hz
+label = game
+description = fake multisplit seqovl md5sig (dup + fake + multisplit)
+--out-range=-n3
+--lua-desync=send:repeats=2:tcp_md5
+--lua-desync=fake:blob=0x0F0F0F0F:tcp_md5
+--lua-desync=multisplit:pos=sld+1:seqovl=2:tcp_md5
+
+[fake_multisplit_seqovl_pos_fake_http]
+name = TankiX Revive v2
+author = hz
+label = game
+description = fake multisplit seqovl pos fake http
+--lua-desync=fake:blob=0x0E0E0F0E:tcp_md5
+--lua-desync=multisplit:pos=host+1:seqovl=2
+
+[fake_multisplit_seqovl_pos_fake_http_2]
+name = TankiX Revive v3
+author = hz
+label = game
+description = fake multisplit seqovl pos fake http
+--lua-desync=fake:blob=0x0F0F0F0F:tcp_md5
+--lua-desync=multisplit:pos=host+1:seqovl=2
+
+[fake_multisplit_md5sig_autottl]
+name = fake multisplit md5sig
+author = hz
+label = game
+--lua-desync=fake:blob=fake_default_http:tcp_md5:ip_autottl=0,3-20:ip6_autottl=0,3-20
+--lua-desync=multisplit:pos=sld+1
+
+[dronator_4_3]
+name = Dronator 4.3
+author = hz
+description = fake multisplit md5sig
+--lua-desync=fake:blob=fake_default_http:tcp_md5
+--lua-desync=multisplit
+
+[multisplit_17]
+name = YTDisBystro 3.4 v1 (2)
+author = hz
+description = Мульти нарезка с md5sig и фейком HTTP
+--out-range=-n3
+--lua-desync=send:repeats=2:tcp_md5:ip_autottl=0,3-20:ip6_autottl=0,3-20
+--lua-desync=fake:blob=fake_default_http:tcp_md5:ip_autottl=0,3-20:ip6_autottl=0,3-20
+--lua-desync=multisplit:pos=2,midsld
+
+[general_altv2_161_original]
+name = general (alt v2) 1.6.1
+author = hz
+description = Оригинальный alt2
+--lua-desync=fake:blob=fake_default_http:tcp_md5:ip_autottl=2,3-20:ip6_autottl=2,3-20
+--lua-desync=multisplit
+
+[general_alt8_185]
+name = general (alt8) 1.8.5
+author = V3nilla
+description = Потом опишу подробнее
+--lua-desync=fake:blob=fake_default_http:tcp_ack=-2:tcp_ts_up:ip_autottl=2,3-20:ip6_autottl=2,3-20
+--lua-desync=multisplit
+
+[multisplit_pos_1_3_5_7]
+name = multisplit pos 1,3,5,7
+author = hz
+description = multisplit pos 1,3,5,7
+--lua-desync=multisplit:pos=1,3,5,7
+
+[multisplit_pos_1_3_5_7_2]
+name = multisplit pos 1,3,5,7 v2
+author = hz
+description = multisplit pos 1,3,5,7 v2
+--lua-desync=multisplit:pos=1,3,5,7:seqovl=2
+
+[http_aggressive]
+name = 🔥 HTTP Aggressive (porno365)
+author = Custom
+label = recommended
+description = Агрессивный обход: flood фейками + split Host + disorder. Для упорных DPI.
+--lua-desync=http_aggressive:fakes=5:ttl_start=1:ttl_step=1:split_host:disorder
+
+[http_aggressive_lite]
+name = 🔥 HTTP Aggressive Lite
+author = Custom
+description = Агрессивный обход без disorder (меньше нагрузка)
+--lua-desync=http_aggressive:fakes=3:ttl_start=1
+
+[http_aggressive_max]
+name = 🔥 HTTP Aggressive MAX
+author = Custom
+label = caution
+description = Максимальная агрессия: 10 фейков + все техники
+--lua-desync=http_aggressive:fakes=10:ttl_start=1:ttl_step=2:split_host:disorder
+
+[http_multidisorder]
+name = 🔀 HTTP MultiDisorder
+author = Custom
+label = recommended
+description = Нарезка HTTP запроса в критических точках + disorder
+--lua-desync=http_multidisorder
+
+[http_fake_multidisorder]
+name = 🎭 Fake + HTTP MultiDisorder
+author = Custom
+label = recommended
+description = Фейки с низким TTL + HTTP MultiDisorder
+--lua-desync=fake:blob=fake_default_http:repeats=5:ip_ttl=1:ip6_ttl=1
+--lua-desync=http_multidisorder
+
+[http_syndata_aggressive]
+name = 🚀 HTTP SynData + Aggressive
+author = Custom
+label = caution
+description = Комбинация SynData и агрессивного обхода
+--lua-desync=http_aggressive:fakes=3:disorder
+
+[mgts_http_v1]
+name = 🏠 МГТС HTTP v1 (AutoTTL+2)
+author = Custom
+label = recommended
+description = Для МГТС: fake с autottl=2 + multidisorder по Host
+--lua-desync=fake:blob=fake_default_http:repeats=6:ip_autottl=2,3-20:ip6_autottl=2,3-20:tcp_md5
+--lua-desync=multidisorder:pos=host+1
+
+[mgts_http_v2]
+name = 🏠 МГТС HTTP v2 (BadSeq)
+author = Custom
+label = recommended
+description = Для МГТС: fake с badseq + multidisorder
+--lua-desync=fake:blob=fake_default_http:repeats=6:tcp_ack=-66000:tcp_ts_up:ip_autottl=2,3-20:ip6_autottl=2,3-20
+--lua-desync=multidisorder:pos=host+1,method+2
+
+[mgts_http_syndata]
+name = 🏠 МГТС HTTP SynData
+author = Custom
+label = recommended
+description = Для МГТС: SynData обходит stateful DPI:ip_autottl=2,3-20:ip6_autottl=2,3-20
+--lua-desync=multidisorder:pos=host+1
+
+[http_fake_flood_6]
+name = 🌊 HTTP Fake Flood x6
+author = Custom
+label = recommended
+description = Флуд 6 фейками с низким TTL + disorder
+--lua-desync=fake:blob=fake_default_http:repeats=6:ip_ttl=1:ip6_ttl=1
+--lua-desync=multidisorder:pos=host+1,method+2
+
+[http_fake_flood_11]
+name = 🌊 HTTP Fake Flood x11
+author = Custom
+label = caution
+description = Максимальный флуд 11 фейками
+--lua-desync=fake:blob=fake_default_http:repeats=11:ip_ttl=1:ip6_ttl=1:tcp_md5
+--lua-desync=multidisorder:pos=1,host+1,method+2
+
+[http_fakedsplit_autottl]
+name = 🎭 HTTP FakedSplit AutoTTL
+author = Custom
+label = recommended
+description = FakedSplit с AutoTTL для близких DPI
+--lua-desync=fakedsplit:pos=host+1:ip_autottl=2,3-20:ip6_autottl=2,3-20:tcp_md5
+
+[http_fakeddisorder_host]
+name = 🔀 HTTP FakedDisorder Host
+author = Custom
+label = recommended
+description = FakedDisorder по позиции Host
+--lua-desync=fakeddisorder:pos=host+1:ip_autottl=0,3-20:ip6_autottl=0,3-20
+
+[http_fakeddisorder_md5]
+name = 🔀 HTTP FakedDisorder MD5
+author = Custom
+label = recommended
+description = FakedDisorder с tcp_md5 по Host
+--lua-desync=fakeddisorder:pos=host+1:ip_autottl=0,3-20:ip6_autottl=0,3-20:tcp_md5
+
+[http_fakeddisorder_ttl1]
+name = 🔀 HTTP FakedDisorder TTL=1
+author = Custom
+label = recommended
+description = FakedDisorder с TTL=1 (фейки умирают быстро)
+--lua-desync=fakeddisorder:pos=host+1:ip_ttl=1:ip6_ttl=1
+
+[http_fakeddisorder_ttl2]
+name = 🔀 HTTP FakedDisorder TTL=2
+author = Custom
+label = recommended
+description = FakedDisorder с TTL=2 для близких DPI
+--lua-desync=fakeddisorder:pos=host+1:ip_ttl=2:ip6_ttl=2:tcp_md5
+
+[http_fakeddisorder_badseq]
+name = 🔀 HTTP FakedDisorder BadSeq
+author = Custom
+label = recommended
+description = FakedDisorder с неправильным sequence number
+--lua-desync=fakeddisorder:pos=host+1:tcp_seq=-10000:ip_autottl=0,3-20:ip6_autottl=0,3-20
+
+[http_fakeddisorder_seqovl]
+name = 🔀 HTTP FakedDisorder seqovl=2
+author = Custom
+label = recommended
+description = FakedDisorder с sequence overlap
+--lua-desync=fakeddisorder:pos=host+1:seqovl=2:ip_autottl=0,3-20:ip6_autottl=0,3-20
+
+[http_fakeddisorder_method_host]
+name = 🔀 HTTP FakedDisorder Method+Host
+author = Custom
+label = recommended
+description = FakedDisorder по двум позициям
+--lua-desync=fakeddisorder:pos=method+2,host+1:ip_autottl=0,3-20:ip6_autottl=0,3-20:tcp_md5
+
+[http_fakeddisorder_multi]
+name = 🔀 HTTP FakedDisorder Multi
+author = Custom
+label = recommended
+description = FakedDisorder по нескольким позициям с seqovl
+--lua-desync=fakeddisorder:pos=1,method+2,host+1:seqovl=2:ip_ttl=2:ip6_ttl=2:tcp_md5
+
+[http_fake_fakeddisorder]
+name = 🎭 Fake + FakedDisorder
+author = Custom
+label = recommended
+description = Сначала фейки, потом FakedDisorder
+--lua-desync=fake:blob=fake_default_http:repeats=4:ip_ttl=1:ip6_ttl=1
+--lua-desync=fakeddisorder:pos=host+1:ip_autottl=0,3-20:ip6_autottl=0,3-20
+
+[http_syndata_fakeddisorder]
+name = 🚀 SynData + FakedDisorder
+author = Custom
+label = recommended
+description = SynData + FakedDisorder комбинация
+--lua-desync=fakeddisorder:pos=host+1:ip_autottl=0,3-20:ip6_autottl=0,3-20
+
+[http_combo_mgts]
+name = 💥 HTTP Combo МГТС
+author = Custom
+label = recommended
+description = Комбо для МГТС: SynData + Fake + Disorder
+--lua-desync=fake:blob=fake_default_http:repeats=4:ip_autottl=2,3-20:ip6_autottl=2,3-20:tcp_md5
+--lua-desync=multidisorder:pos=host+1
+
+[http_dup_fake_disorder]
+name = 📦 HTTP Dup + Fake + Disorder
+author = Custom
+label = recommended
+description = Дублирование + фейки + disorder
+--out-range=-n3
+--lua-desync=send:repeats=2:tcp_md5
+--lua-desync=fake:blob=fake_default_http:repeats=4:ip_ttl=2:ip6_ttl=2:tcp_md5
+--lua-desync=multidisorder:pos=host+1
+
+[http_split_seqovl_2]
+name = ✂️ HTTP Split seqovl=2
+author = Custom
+description = Простая нарезка с seqovl=2 по Host
+--lua-desync=multisplit:pos=host+1:seqovl=2
+
+[http_split_seqovl_5]
+name = ✂️ HTTP Split seqovl=5
+author = Custom
+description = Нарезка с seqovl=5 по Host и Method
+--lua-desync=multisplit:pos=host+1,method+2:seqovl=5
+
+[http_datanoack]
+name = ⚡ HTTP DataNoAck
+author = Custom
+description = Убираем ACK флаг из данных
+--lua-desync=fake:blob=fake_default_http:tcp_flags_unset=ack
+--lua-desync=multidisorder:pos=host+1:tcp_flags_unset=ack
+
+[http_badsum_flood]
+name = 💀 HTTP BadSum Flood
+author = Custom
+label = caution
+description = Фейки с неправильной контрольной суммой
+--lua-desync=fake:blob=fake_default_http:repeats=8:badsum:ip_ttl=1:ip6_ttl=1
+--lua-desync=multidisorder:pos=host+1
+
+[http_ultimate]
+name = 🔥 HTTP Ultimate (porno365)
+author = Custom
+label = caution
+description = Максимальная комбинация всех техник для упорных DPI
+--out-range=-n3
+--lua-desync=send:repeats=2:tcp_md5:ip_autottl=2,3-20:ip6_autottl=2,3-20
+--lua-desync=fake:blob=fake_default_http:repeats=8:ip_ttl=1:ip6_ttl=1:tcp_md5
+--lua-desync=multidisorder:pos=1,method+2,host+1
+
+[http_syndata_only]
+name = 🚀 SynData Pure (МГТС)
+author = Custom
+label = recommended
+description = Только SynData - данные в SYN пакете обходят stateful DPI
+
+[http_syndata_multisplit]
+name = 🚀 SynData + MultiSplit
+author = Custom
+label = recommended
+description = SynData + нарезка на 4 части
+--lua-desync=multisplit:pos=1,method+2,host+1,sld+1
+
+[http_syndata_disorder_multi]
+name = 🚀 SynData + Disorder Multi
+author = Custom
+label = recommended
+description = SynData + disorder на 4 позиции
+--lua-desync=multidisorder:pos=1,method+2,host+1,sld+1
+
+[http_fake_flood_syndata]
+name = 🌊 Fake Flood + SynData
+author = Custom
+label = recommended
+description = Сначала 10 фейков, потом SynData
+--lua-desync=fake:blob=fake_default_http:repeats=10:ip_ttl=1:ip6_ttl=1:tcp_md5
+--lua-desync=syndata
+
+[http_disorder_4pos]
+name = 🔀 Disorder 4 позиции
+author = Custom
+label = recommended
+description = Disorder по 4 точкам: 1, method, host, sld
+--lua-desync=multidisorder:pos=1,method+2,host+1,sld+1:ip_autottl=0,3-20:ip6_autottl=0,3-20
+
+[http_disorder_seqovl_4]
+name = 🔀 Disorder seqovl=4
+author = Custom
+label = recommended
+description = Disorder с большим перекрытием (4 байта)
+--lua-desync=multidisorder:pos=host+1:seqovl=4:ip_autottl=0,3-20:ip6_autottl=0,3-20
+
+[http_fake_disorder_seqovl]
+name = 🎭 Fake + Disorder seqovl=4
+author = Custom
+label = recommended
+description = Фейки + disorder с перекрытием 4 байта
+--lua-desync=fake:blob=fake_default_http:repeats=6:ip_ttl=1:ip6_ttl=1
+--lua-desync=multidisorder:pos=host+1:seqovl=4
+
+[http_split_disorder_combo]
+name = ✂️ Split + Disorder Combo
+author = Custom
+label = recommended
+description = Сначала split, потом disorder - путает DPI
+--lua-desync=multisplit:pos=method+2
+--lua-desync=multidisorder:pos=host+1,sld+1
+
+[http_porno365_v1]
+name = 💋 Porno365 v1 (SynData)
+author = Custom
+label = recommended
+description = Специально для porno365 - SynData обходит МГТС
+--lua-desync=fake:blob=fake_default_http:repeats=4:ip_ttl=1:ip6_ttl=1
+--lua-desync=multidisorder:pos=host+1
+
+[http_porno365_v2]
+name = 💋 Porno365 v2 (TTL Flood)
+author = Custom
+label = recommended
+description = Флуд фейками с разными TTL + disorder
+--lua-desync=fake:blob=fake_default_http:repeats=3:ip_ttl=1:ip6_ttl=1
+--lua-desync=fake:blob=fake_default_http:repeats=3:ip_ttl=2:ip6_ttl=2
+--lua-desync=fake:blob=fake_default_http:repeats=3:ip_ttl=3:ip6_ttl=3
+--lua-desync=multidisorder:pos=host+1
+
+[http_porno365_v3]
+name = 💋 Porno365 v3 (Max Split)
+author = Custom
+label = caution
+description = Максимальная нарезка на 5 частей + фейки
+--lua-desync=fake:blob=fake_default_http:repeats=6:ip_ttl=1:ip6_ttl=1:tcp_md5
+--lua-desync=multidisorder:pos=1,3,method+2,host+1,sld+1:seqovl=2
+
+[http_porno365_v4]
+name = 💋 Porno365 v4 (Dup+Fake+Split)
+author = Custom
+label = caution
+description = Дублирование + фейки + многопозиционный split
+--out-range=-n3
+--lua-desync=send:repeats=3:tcp_md5
+--lua-desync=fake:blob=fake_default_http:repeats=8:ip_ttl=1:ip6_ttl=1:tcp_md5
+--lua-desync=multidisorder:pos=1,method+2,host+1,sld+1:seqovl=3
+
+[http_badsum_only]
+name = 💀 BadSum Only
+author = Custom
+label = recommended
+description = Фейки с неправильной контрольной суммой - DPI примет, сервер отбросит
+--lua-desync=fake:blob=fake_default_http:repeats=6:badsum
+--lua-desync=multidisorder:pos=host+1
+
+[http_badsum_badseq]
+name = 💀 BadSum + BadSeq
+author = Custom
+label = recommended
+description = Неправильная сумма + неправильный seq
+--lua-desync=fake:blob=fake_default_http:repeats=6:badsum:tcp_seq=-50000
+--lua-desync=multidisorder:pos=host+1
+
+[http_badseq_extreme]
+name = 🔢 BadSeq Extreme (-100000)
+author = Custom
+label = recommended
+description = Очень большое смещение seq - сервер отбросит фейки
+--lua-desync=fake:blob=fake_default_http:repeats=8:tcp_seq=-100000:ip_ttl=3:ip6_ttl=3
+--lua-desync=multidisorder:pos=host+1
+
+[http_badack_extreme]
+name = 🔢 BadAck Extreme
+author = Custom
+label = recommended
+description = Неправильный ACK - DPI запутается
+--lua-desync=fake:blob=fake_default_http:repeats=6:tcp_ack=-100000:tcp_ts_up
+--lua-desync=multidisorder:pos=host+1
+
+[http_triple_fake]
+name = 🎭 Triple Fake Layers
+author = Custom
+label = recommended
+description = 3 слоя фейков с разными параметрами
+--lua-desync=fake:blob=fake_default_http:repeats=4:badsum
+--lua-desync=fake:blob=fake_default_http:repeats=4:tcp_seq=-50000
+--lua-desync=fake:blob=fake_default_http:repeats=4:ip_ttl=1:ip6_ttl=1
+--lua-desync=multidisorder:pos=host+1
+
+[http_mega_flood_20]
+name = 🌊 Mega Flood x20
+author = Custom
+label = caution
+description = 20 фейков чтобы переполнить буфер DPI
+--lua-desync=fake:blob=fake_default_http:repeats=20:ip_ttl=1:ip6_ttl=1:tcp_md5
+--lua-desync=multidisorder:pos=host+1
+
+[http_mgts_killer_v1]
+name = ⚔️ МГТС Killer v1
+author = Custom
+label = recommended
+description = BadSum + много фейков + disorder
+--lua-desync=fake:blob=fake_default_http:repeats=10:badsum:ip_ttl=2:ip6_ttl=2
+--lua-desync=multidisorder:pos=1,host+1:seqovl=3
+
+[http_mgts_killer_v2]
+name = ⚔️ МГТС Killer v2
+author = Custom
+label = recommended
+description = BadSeq extreme + TTL gradient + split
+--lua-desync=fake:blob=fake_default_http:repeats=5:tcp_seq=-100000:ip_ttl=1:ip6_ttl=1
+--lua-desync=fake:blob=fake_default_http:repeats=5:tcp_seq=-50000:ip_ttl=2:ip6_ttl=2
+--lua-desync=multidisorder:pos=host+1,method+2:seqovl=2
+
+[http_mgts_killer_v3]
+name = ⚔️ МГТС Killer v3
+author = Custom
+label = caution
+description = Всё вместе: badsum + badseq + badack + flood
+--lua-desync=fake:blob=fake_default_http:repeats=5:badsum
+--lua-desync=fake:blob=fake_default_http:repeats=5:tcp_seq=-100000
+--lua-desync=fake:blob=fake_default_http:repeats=5:tcp_ack=-100000:tcp_ts_up
+--lua-desync=multidisorder:pos=1,host+1,sld+1:seqovl=3
+
+[http_rst_race]
+name = 🏎️ RST Race
+author = Custom
+label = recommended
+description = Отправить данные быстрее чем DPI пошлёт RST
+--lua-desync=send:repeats=3
+--lua-desync=multidisorder:pos=host+1
+
+[http_no_fake_disorder]
+name = 🔀 No Fake Disorder
+author = Custom
+description = Только disorder без фейков - иногда работает лучше
+--lua-desync=multidisorder:pos=1,method+2,host+1,sld+1:seqovl=4
+
+[http_seqovl_host_google]
+name = 🎯 SeqOvl Host (google)
+author = Custom
+label = recommended
+description = DPI видит google.com, сервер - реальный хост (seqovl атака)
+--lua-desync=http_seqovl_host:fake_host=www.google.com
+
+[http_seqovl_host_yandex]
+name = 🎯 SeqOvl Host (yandex)
+author = Custom
+label = recommended
+description = DPI видит yandex.ru, сервер - реальный хост
+--lua-desync=http_seqovl_host:fake_host=www.yandex.ru
+
+[http_triple_seqovl_attack]
+name = 🎯 Triple SeqOvl Attack
+author = Custom
+label = recommended
+description = 3 пакета с одинаковым seq: fake->garbage->real
+--lua-desync=http_triple_seqovl:fake_host=www.google.com
+
+[http_mgts_combo_v1]
+name = ⚔️ МГТС Combo (disorder+seqovl)
+author = Custom
+label = recommended
+description = Disorder + seqovl комбо специально для МГТС
+--lua-desync=http_mgts_combo:fake_host=www.google.com
+
+[http_ipfrag_24]
+name = 📦 IP Frag (24 bytes)
+author = Custom
+label = recommended
+description = IP фрагментация - DPI может не собирать фрагменты
+--lua-desync=http_ipfrag:frag_size=24
+
+[http_ipfrag_8]
+name = 📦 IP Frag (8 bytes)
+author = Custom
+description = Минимальная IP фрагментация
+--lua-desync=http_ipfrag:frag_size=8
+
+[http_hostmod_lower]
+name = 📝 Host: lowercase
+author = Custom
+description = Меняет 'Host:' на 'host:' - некоторые DPI чувствительны
+--lua-desync=http_hostmod:case=lower
+
+[http_hostmod_upper]
+name = 📝 HOST: uppercase
+author = Custom
+description = Меняет 'Host:' на 'HOST:'
+--lua-desync=http_hostmod:case=upper
+
+[http_hostmod_mixed]
+name = 📝 HoSt: mixed case
+author = Custom
+description = Меняет 'Host:' на 'HoSt:'
+--lua-desync=http_hostmod:case=mixed
+
+[http_absolute_url_google]
+name = 🔗 Absolute URL (google)
+author = Custom
+description = GET http://real/ с Host: google.com
+--lua-desync=http_absolute_url:fake_host=www.google.com
+
+[http_seqovl_disorder_combo]
+name = 💥 SeqOvl + Disorder Full
+author = Custom
+label = recommended
+description = SeqOvl хост + полный disorder
+--lua-desync=http_seqovl_host:fake_host=www.google.com
+--lua-desync=multidisorder:pos=method+2,host+1
+
+[http_ipfrag_seqovl_combo]
+name = 💥 IP Frag + SeqOvl
+author = Custom
+label = caution
+description = IP фрагментация + seqovl атака на Host
+--lua-desync=http_ipfrag:frag_size=24
+--lua-desync=http_seqovl_host:fake_host=google.com
+
+[http_hostcase_mixed]
+name = 📝 HostCase HoSt
+author = Custom
+description = Меняет 'Host:' на 'HoSt:' (4-символьный spell) для простых DPI
+--lua-desync=http_hostcase:spell=HoSt
+
+[http_methodeol_shift]
+name = 📑 Method EOL shift
+author = Custom
+description = Сдвигает User-Agent вверх (http_methodeol) — ломает парсер DPI
+--lua-desync=http_methodeol
+
+[http_methodeol_shift_multisplit]
+name = 📑 Method EOL shift + Multisplit
+author = Custom
+description = Сдвигает User-Agent вверх (http_methodeol) — ломает парсер DPI + Multisplit
+--lua-desync=http_methodeol
+--lua-desync=multisplit:pos=host+1
+
+[http_fake_methodeol_shift_multisplit]
+name = 📑 Fake + Method EOL shift + Multisplit
+author = Custom
+description = Фейки + сдвигает User-Agent вверх (http_methodeol) — ломает парсер DPI + Multisplit
+--lua-desync=fake:blob=fake_default_http:repeats=10:ip_ttl=1:ip6_ttl=1:badsum:tcp_md5
+--lua-desync=http_methodeol
+--lua-desync=multisplit:pos=1,host+1,midsld:oob
+
+[http_fake_methodeol_shift_multisplit_badsum]
+name = 📑 Fake + Method EOL shift + Multisplit + BadSum
+author = Custom
+description = Фейки + сдвигает User-Agent вверх (http_methodeol) — ломает парсер DPI + Multisplit + BadSum
+--lua-desync=fake:blob=fake_default_http:repeats=10:ip_ttl=1:ip6_ttl=1:badsum
+--lua-desync=http_methodeol
+--lua-desync=multisplit:pos=1,host+1,midsld
+
+[http_hostfakesplit_google]
+name = 🌀 HostFakeSplit (google)
+author = Custom
+label = caution
+description = Подменяет Host на google.com фейками и разбивает внутри Host (midsld)
+--lua-desync=hostfakesplit:host=google.com:midhost=midsld
+
+[http_hostfakesplit_yandex]
+name = 🌀 HostFakeSplit (yandex)
+author = Custom
+label = caution
+description = Подменяет Host на yandex.ru фейками и разбивает внутри Host (midsld)
+--lua-desync=hostfakesplit:host=yandex.ru:midhost=midsld
+
+[http_garbage_prefix_crlf]
+name = 🗑️ Garbage Prefix CRLF
+author = Custom
+label = recommended
+description = Много \r\n перед запросом - сбивает парсер DPI
+--lua-desync=http_garbage_prefix:mode=crlf:amount=50
+
+[http_garbage_prefix_mixed]
+name = 🗑️ Garbage Prefix Mixed
+author = Custom
+label = recommended
+description = Смешанный мусор перед запросом (пробелы, табы, CRLF)
+--lua-desync=http_garbage_prefix:mode=mixed:amount=100
+
+[http_garbage_prefix_spaces]
+name = 🗑️ Garbage Prefix Spaces
+author = Custom
+description = Много пробелов перед запросом
+--lua-desync=http_garbage_prefix:mode=spaces:amount=50
+
+[http_pipeline_fake_google]
+name = 📤 Pipeline Fake (google)
+author = Custom
+label = recommended
+description = HTTP pipelining - фейковый запрос к google перед реальным
+--lua-desync=http_pipeline_fake:fake_host=www.google.com
+
+[http_pipeline_fake_yandex]
+name = 📤 Pipeline Fake (yandex)
+author = Custom
+description = HTTP pipelining - фейковый запрос к yandex перед реальным
+--lua-desync=http_pipeline_fake:fake_host=www.yandex.ru
+
+[http_pipeline_fake_v2_google]
+name = 📤 Pipeline Fake v2 (badsum)
+author = Custom
+label = recommended
+description = HTTP pipelining v2 - фейк с badsum (не дойдёт до сервера)
+--lua-desync=http_pipeline_fake_v2:fake_host=www.google.com:badsum
+
+[http_header_shuffle_google]
+name = 🔀 Header Shuffle (google)
+author = Custom
+label = recommended
+description = Вставляет фейковый X-Host перед реальным Host
+--lua-desync=http_header_shuffle:fake_host=www.google.com
+
+[http_host_bytesplit_5]
+name = ✂️ Host Bytesplit x5
+author = Custom
+label = recommended
+description = Разбивает Host на 5 частей побайтово
+--lua-desync=http_host_bytesplit:max_parts=5
+
+[http_host_bytesplit_10]
+name = ✂️ Host Bytesplit x10
+author = Custom
+label = caution
+description = Разбивает Host на 10 частей побайтово (агрессивно)
+--lua-desync=http_host_bytesplit:max_parts=10
+
+[http_methodeol_safe_only]
+name = 📑 Methodeol Safe
+author = Custom
+label = recommended
+description = Только \r\n в начало без обрезания User-Agent
+--lua-desync=http_methodeol_safe
+
+[http_multi_crlf_5]
+name = 📑 Multi CRLF x5
+author = Custom
+label = recommended
+description = 5 штук \r\n в начало запроса
+--lua-desync=http_multi_crlf:count=5
+
+[http_multi_crlf_10]
+name = 📑 Multi CRLF x10
+author = Custom
+description = 10 штук \r\n в начало запроса
+--lua-desync=http_multi_crlf:count=10
+
+[http_mixed_prefix_only]
+name = 📑 Mixed Prefix
+author = Custom
+label = recommended
+description = Смешанный whitespace перед запросом (\r\n + пробел + таб)
+--lua-desync=http_mixed_prefix
+
+[http_xpadding_header]
+name = 📝 X-Padding Header
+author = Custom
+label = recommended
+description = Добавляет длинный X-Pad заголовок (100% безопасно для сервера)
+--lua-desync=http_xpadding
+
+[http_simple_bypass_crlf]
+name = 🔓 Simple Bypass (CRLF+HoSt)
+author = Custom
+label = recommended
+description = Простой обход: \r\n + замена Host на HoSt
+--lua-desync=http_simple_bypass:prefix=\r\n:hostcase=HoSt
+
+[http_simple_bypass_hostonly]
+name = 🔓 Simple Bypass (HoSt only)
+author = Custom
+description = Только замена Host на HoSt без prefix
+--lua-desync=http_simple_bypass:hostcase=HoSt
+
+[http_combo_garbage_hostcase_split]
+name = 💥 Combo: Garbage + HoSt + Split
+author = Custom
+label = recommended
+description = Мусор + смена регистра Host + split
+--lua-desync=http_garbage_prefix:mode=crlf:amount=50
+--lua-desync=http_hostcase:spell=HoSt
+--lua-desync=multisplit:pos=1,host+1,midsld
+
+[http_combo_fake_simple_bypass]
+name = 💥 Combo: Fake + Simple Bypass
+author = Custom
+label = recommended
+description = Фейки + простой обход (\r\n + HoSt)
+--lua-desync=fake:blob=fake_default_http:repeats=20:ip_ttl=2:ip6_ttl=2:badsum
+--lua-desync=http_simple_bypass:prefix=\r\n:hostcase=HoSt
+
+[http_combo_fake_methodeol_safe]
+name = 💥 Combo: Fake + Methodeol Safe
+author = Custom
+label = recommended
+description = Фейки + безопасный methodeol
+--lua-desync=fake:blob=fake_default_http:repeats=15:ip_ttl=2:ip6_ttl=2:badsum
+--lua-desync=http_methodeol_safe
+
+[http_combo_fake_xpadding_split]
+name = 💥 Combo: Fake + X-Padding + Split
+author = Custom
+label = recommended
+description = Фейки + X-Padding заголовок + split
+--lua-desync=fake:blob=fake_default_http:repeats=15:ip_ttl=2:ip6_ttl=2:badsum
+--lua-desync=http_xpadding
+--lua-desync=multisplit:pos=1,host+1,midsld
+
+[http_porno365_redirector_v1]
+name = 💋 Porno365 Redirector v1
+author = Custom
+label = recommended
+description = Для редиректоров: много фейков + methodeol safe + split
+--lua-desync=fake:blob=fake_default_http:repeats=30:ip_ttl=1:ip6_ttl=1:badsum:tcp_md5
+--lua-desync=http_methodeol_safe
+--lua-desync=multidisorder:pos=1,host+1,midsld
+
+[http_porno365_redirector_v2]
+name = 💋 Porno365 Redirector v2
+author = Custom
+label = recommended
+description = Для редиректоров: pipeline fake v2 + disorder
+--lua-desync=http_pipeline_fake_v2:fake_host=www.google.com:badsum
+--lua-desync=multidisorder:pos=host+1
+
+[http_porno365_redirector_v3]
+name = 💋 Porno365 Redirector v3
+author = Custom
+label = recommended
+description = Для редиректоров: garbage + header shuffle + split
+--lua-desync=fake:blob=fake_default_http:repeats=20:ip_ttl=1:ip6_ttl=1:badsum
+--lua-desync=http_garbage_prefix:mode=crlf:amount=30
+--lua-desync=http_header_shuffle:fake_host=www.google.com
+--lua-desync=multidisorder:pos=1,host+1
+
+[http_porno365_ultimate]
+name = 💋 Porno365 Ultimate
+author = Custom
+label = caution
+description = Все техники вместе для самых упорных DPI
+--lua-desync=fake:blob=fake_default_http:repeats=50:ip_ttl=1:ip6_ttl=1:badsum:tcp_md5
+--lua-desync=http_garbage_prefix:mode=mixed:amount=50
+--lua-desync=http_simple_bypass:prefix=\r\n:hostcase=HoSt
+--lua-desync=multidisorder:pos=1,host+1,midsld:seqovl=2
+
+[http_method_obfuscate]
+name = 🔡 Method Obfuscate
+author = Custom
+description = Меняет GET на GeT или gEt
+--lua-desync=http_method_obfuscate
+
+[http_version_downgrade]
+name = 📉 Version Downgrade
+author = Custom
+description = HTTP/1.1 -> HTTP/1.0 (некоторые DPI не парсят 1.0)
+--lua-desync=http_version_downgrade
+
+[http_fake_continuation]
+name = 📤 Fake Continuation
+author = Custom
+description = Отправляет фейковый chunked continuation
+--lua-desync=http_fake_continuation
