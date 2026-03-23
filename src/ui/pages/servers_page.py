@@ -881,6 +881,8 @@ class ChangelogCard(CardWidget):
         return re.sub(url_pattern, replace_url, text)
 
     def show_update(self, version: str, changelog: str):
+        if self._is_downloading:
+            return
         self._mode = "update"
         self._is_downloading = False
         self._icon_kind = "update"
@@ -1509,7 +1511,7 @@ class ServersPage(BasePage):
         if event.spontaneous():
             return
 
-        if self.changelog_card._is_downloading:
+        if self._update_in_progress or self.changelog_card._is_downloading:
             return
 
         elapsed = time.time() - self._last_check_time
@@ -1528,7 +1530,7 @@ class ServersPage(BasePage):
         if self._checking:
             return
 
-        if self.changelog_card._is_downloading:
+        if self._update_in_progress or self.changelog_card._is_downloading:
             log("⏭️ Пропуск проверки - идёт скачивание обновления", "🔄 UPDATE")
             return
 
@@ -1591,6 +1593,9 @@ class ServersPage(BasePage):
             return
 
         if getattr(self, "_found_update", False) is False and not status.get("is_current"):
+            return
+
+        if getattr(self, "_update_in_progress", False):
             return
 
         if hasattr(self, "changelog_card") and getattr(self.changelog_card, "_is_downloading", False):
@@ -1669,11 +1674,11 @@ class ServersPage(BasePage):
         self._has_cached_data = True
         self.update_card.stop_checking(self._found_update, self._remote_version)
 
-        if self._found_update and not self.changelog_card._is_downloading:
+        if self._found_update and not self._update_in_progress and not self.changelog_card._is_downloading:
             self.changelog_card.show_update(self._remote_version, self._release_notes)
 
     def _check_updates(self):
-        if self.changelog_card._is_downloading:
+        if self._update_in_progress or self.changelog_card._is_downloading:
             return
 
         self.changelog_card.hide()
@@ -1708,6 +1713,7 @@ class ServersPage(BasePage):
 
         self.changelog_card.start_download(self._remote_version)
         self.update_card.hide()
+        self.update_card.check_btn.setEnabled(False)
 
         try:
             from updater.update import UpdateWorker
@@ -1728,6 +1734,7 @@ class ServersPage(BasePage):
                 self._update_in_progress = False
                 self._update_thread = None
                 self._update_worker = None
+                self.update_card.check_btn.setEnabled(True)
             self._update_thread.finished.connect(_on_thread_done)
 
             self._update_worker.progress_bytes.connect(
@@ -1745,6 +1752,7 @@ class ServersPage(BasePage):
             self._update_in_progress = False
             self._update_thread = None
             self._update_worker = None
+            self.update_card.check_btn.setEnabled(True)
             self.changelog_card.download_failed(str(e)[:50])
 
     def _on_download_failed(self, error: str):

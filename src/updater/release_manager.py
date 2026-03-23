@@ -141,44 +141,40 @@ class ReleaseManager:
     def get_latest_release(self, channel: str) -> Optional[Dict[str, Any]]:
         """
         Получает информацию о последнем релизе
-        
+
         Приоритет источников:
-        1. Telegram (основной, быстрый)
-        2. VPS серверы (резерв)
-        3. GitHub API (fallback)
-        
+        1. GitHub API (быстрый CDN для скачивания)
+        2. Telegram (версия через Bot API)
+        3. VPS серверы (резерв)
+
         Args:
             channel: "stable" или "dev"
-            
+
         Returns:
             Dict с информацией о релизе или None
         """
-        # ✅ 1. ПРОБУЕМ TELEGRAM (основной источник)
+        # 1. GitHub API (быстрый CDN)
+        result = self._try_github(channel)
+        if result:
+            return result
+
+        # 2. Telegram
         result = self._try_telegram(channel)
         if result:
             return result
-        
-        # ✅ 2. ПРОВЕРЯЕМ ГЛОБАЛЬНУЮ БЛОКИРОВКУ VPS
-        vps_blocked = self._is_vps_blocked()
-        
-        if vps_blocked:
+
+        # 3. VPS серверы
+        if self._is_vps_blocked():
             dt = datetime.fromtimestamp(self._vps_block_until)
-            log(f"🚫 ВСЕ VPS серверы заблокированы до {dt}, используем только GitHub", "🔄 RELEASE")
-            return self._try_github(channel)
-        
-        # ✅ 3. ЕСЛИ ЕСТЬ ПУЛ СЕРВЕРОВ - используем балансировку
+            log(f"🚫 VPS заблокированы до {dt}", "🔄 RELEASE")
+            return None
+
         if self.server_pool and VPS_SERVERS:
             result = self._try_server_pool(channel)
             if result:
                 return result
-            
-            # Пул не сработал - пробуем GitHub
-            log("⚠️ Все VPS серверы недоступны, переключаемся на GitHub", "🔄 RELEASE")
-            return self._try_github(channel)
-        
-        # ✅ 4. FALLBACK: GitHub
-        log("⚠️ Пул серверов пуст, используем только GitHub", "🔄 RELEASE")
-        return self._try_github(channel)
+
+        return None
     
     def _try_telegram(self, channel: str) -> Optional[Dict[str, Any]]:
         """

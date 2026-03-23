@@ -1,0 +1,112 @@
+name: "Сервис не работает"
+description: "Сообщить что конкретный сервис не работает через Zapret GUI"
+title: "[Не работает]: "
+labels: ["сервис не работает"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Если какой-то сервис не работает через Zapret GUI, заполните эту форму.
+        Чем подробнее вы опишете проблему, тем быстрее мы сможем помочь.
+
+  - type: dropdown
+    id: service
+    attributes:
+      label: Какой сервис не работает
+      options:
+        - YouTube
+        - Discord
+        - Spotify
+        - Steam
+        - Epic Games
+        - Telegram
+        - Twitch
+        - TikTok
+        - Instagram
+        - Facebook
+        - "Twitter/X"
+        - VK
+        - Valorant
+        - Другие игры
+        - Другой
+    validations:
+      required: true
+
+  - type: input
+    id: other_service
+    attributes:
+      label: Если выбрали «Другой» или «Другие игры» — укажите какой сервис
+      description: "Название сервиса или игры"
+      placeholder: "Например: ChatGPT, Battlefield 6, Netflix"
+    validations:
+      required: false
+
+  - type: input
+    id: version
+    attributes:
+      label: Версия Zapret GUI
+      description: "Указана в заголовке окна или в разделе «О программе»"
+      placeholder: "Например: 1.2.3"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: os
+    attributes:
+      label: Операционная система
+      options:
+        - Windows 10
+        - Windows 11
+        - Windows 7
+        - "Windows 8/8.1"
+        - Другая
+    validations:
+      required: true
+
+  - type: input
+    id: provider
+    attributes:
+      label: Провайдер
+      description: "Ваш интернет-провайдер"
+      placeholder: "Например: Ростелеком, МТС, Билайн"
+    validations:
+      required: true
+
+  - type: input
+    id: preset
+    attributes:
+      label: Используемый пресет
+      description: "Какой пресет (стратегию) вы используете"
+      placeholder: "Например: Default, general ALT 3, Ростелеком"
+    validations:
+      required: true
+
+  - type: textarea
+    id: description
+    attributes:
+      label: Что именно не работает
+      description: "Подробно опишите проблему: что открываете, что видите, какие ошибки"
+      placeholder: |
+        Например: Захожу на YouTube, видео не загружается, крутится бесконечный спиннер.
+        Или: Steam открывается, но магазин показывает ошибку соединения.
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Логи / скриншоты
+      description: |
+        Если есть — приложите логи программы или скриншоты.
+        Вы можете перетащить файлы прямо в это поле или вставить из буфера обмена.
+      placeholder: "Перетащите файлы сюда или вставьте текст логов"
+    validations:
+      required: false
+
+  - type: checkboxes
+    id: tried_other_presets
+    attributes:
+      label: Проверка пресетов
+      options:
+        - label: Я попробовал другие пресеты и ни один не помог
+          required: true

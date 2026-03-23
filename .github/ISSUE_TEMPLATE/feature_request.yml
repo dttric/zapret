@@ -1,0 +1,55 @@
+name: "Запрос функции"
+description: "Предложить новую функцию или улучшение для Zapret GUI"
+title: "[Фича]: "
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Спасибо за ваш интерес к улучшению Zapret GUI! Пожалуйста, опишите вашу идею как можно подробнее.
+
+        Перед созданием запроса убедитесь, что аналогичное предложение ещё не было создано.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: Описание проблемы / потребности
+      description: "Какую проблему вы хотите решить? Опишите контекст и мотивацию."
+      placeholder: "Мне не хватает возможности ... / Меня раздражает, что ..."
+    validations:
+      required: true
+
+  - type: textarea
+    id: solution
+    attributes:
+      label: Предлагаемое решение
+      description: "Опишите, как вы видите решение этой проблемы"
+      placeholder: "Было бы удобно, если бы программа ..."
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Альтернативные варианты
+      description: "Рассматривали ли вы другие способы решения? Если да — опишите их."
+      placeholder: "Другой вариант — ..."
+    validations:
+      required: false
+
+  - type: textarea
+    id: context
+    attributes:
+      label: Дополнительный контекст / скриншоты
+      description: "Любая дополнительная информация, макеты или скриншоты, которые помогут понять идею."
+      placeholder: "Перетащите файлы сюда или вставьте текст"
+    validations:
+      required: false
+
+  - type: checkboxes
+    id: existing_issues
+    attributes:
+      label: Проверка дубликатов
+      options:
+        - label: Я проверил существующие issue и не нашёл аналогичного запроса
+          required: true

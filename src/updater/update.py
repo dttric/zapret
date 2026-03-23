@@ -400,63 +400,48 @@ class UpdateWorker(QObject):
             return False
     
     def _get_download_urls(self, release_info: dict) -> list:
-        """Формирует список URL в порядке приоритета со всеми доступными серверами"""
+        """Формирует список URL: GitHub CDN первый, VPS как fallback"""
         urls = []
         upd_url = release_info["update_url"]
         verify_ssl = release_info.get("verify_ssl", True)
 
-        # 1. Основной URL (откуда получили информацию о версии)
-        # telegram:// — специальный схема, обрабатывается отдельно; в список не добавляем
+        # Извлекаем имя файла
+        filename = (release_info.get("file_name") or "").strip()
+        if not filename and not upd_url.startswith("telegram://"):
+            filename = upd_url.split('/')[-1]
+        if not filename:
+            filename = "Zapret2Setup.exe"
+
+        # 1. Основной URL (GitHub CDN если источник — GitHub)
         if not upd_url.startswith("telegram://"):
             urls.append((upd_url, verify_ssl))
 
-        # 2. Добавляем все VPS серверы как fallback
-        # ВАЖНО: сначала HTTPS всех серверов, потом HTTP всех серверов.
-        # Это гарантирует что при переключении с медленного зеркала
-        # мы попадаем на ДРУГОЙ сервер, а не на тот же по HTTP.
-        try:
-            from .server_config import VPS_SERVERS, should_verify_ssl
-
-            # Извлекаем имя файла: сначала из поля file_name, затем из update_url
-            filename = (release_info.get("file_name") or "").strip()
-            if not filename and not upd_url.startswith("telegram://"):
-                filename = upd_url.split('/')[-1]
-            if not filename:
-                filename = "Zapret2Setup.exe"
-
-            # Хост основного URL для дедупликации (не добавлять HTTP того же сервера)
-            try:
-                from urllib.parse import urlparse
-                _primary_host = urlparse(upd_url).hostname
-            except Exception:
-                _primary_host = None
-
-            # Сначала HTTPS всех серверов
-            for server in VPS_SERVERS:
-                https_url = f"https://{server['host']}:{server['https_port']}/download/{filename}"
-                if https_url != upd_url:
-                    urls.append((https_url, should_verify_ssl()))
-
-            # Потом HTTP всех серверов (fallback), пропуская хост основного URL
-            for server in VPS_SERVERS:
-                if _primary_host and server['host'] == _primary_host:
-                    continue
-                http_url = f"http://{server['host']}:{server['http_port']}/download/{filename}"
-                urls.append((http_url, False))
-                    
-        except Exception as e:
-            log(f"Не удалось добавить fallback серверы: {e}", "🔁 UPDATE")
-
-        # 3. GitHub как финальный fallback (если нет ни одного URL)
-        if not urls:
+        # 2. Если источник не GitHub — добавить GitHub как приоритетный fallback
+        if "github.com" not in upd_url:
             try:
                 from .github_release import get_latest_release as github_get_latest
                 gh_release = github_get_latest(CHANNEL)
                 if gh_release and gh_release.get("update_url"):
                     urls.append((gh_release["update_url"], True))
-                    log(f"📥 GitHub fallback: {gh_release['update_url']}", "🔁 UPDATE")
-            except Exception as e:
-                log(f"⚠️ Не удалось добавить GitHub fallback: {e}", "🔁 UPDATE")
+            except Exception:
+                pass
+
+        # 3. VPS серверы как финальный fallback
+        try:
+            from .server_config import VPS_SERVERS, should_verify_ssl
+
+            for server in VPS_SERVERS:
+                https_url = f"https://{server['host']}:{server['https_port']}/download/{filename}"
+                if https_url != upd_url:
+                    urls.append((https_url, should_verify_ssl()))
+
+            for server in VPS_SERVERS:
+                http_url = f"http://{server['host']}:{server['http_port']}/download/{filename}"
+                if http_url != upd_url:
+                    urls.append((http_url, False))
+
+        except Exception as e:
+            log(f"Не удалось добавить VPS fallback: {e}", "🔁 UPDATE")
 
         log(f"Сформировано {len(urls)} URL для скачивания", "🔁 UPDATE")
         return urls

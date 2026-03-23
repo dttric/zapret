@@ -2357,6 +2357,9 @@ def main():
             window.show_page(_PageName.SERVERS)
             sp = window.pages.get(_PageName.SERVERS)
             if sp is not None:
+                if sp._update_in_progress or sp.changelog_card._is_downloading:
+                    log("Обновление уже загружается, пропускаем startup-триггер", "🔄 UPDATE")
+                    return
                 sp._remote_version = version
                 sp._release_notes = release_notes
                 sp._found_update = True

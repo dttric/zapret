@@ -1,0 +1,98 @@
+name: "Заявка на добавление hostlist/ipset"
+description: "Запросить добавление новых доменов или IP-адресов в списки"
+title: "[Hostlist/IPset]: "
+labels: ["hostlist/ipset"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Спасибо за заявку на расширение списков! Пожалуйста, заполните форму ниже.
+
+        **Hostlist** — список доменов (например, `example.com`), используется для обхода блокировок по доменному имени.
+        **IPset** — список IP-адресов (например, `1.2.3.4/24`), используется для обхода блокировок по IP.
+
+        Существующие hostlist: `russia-youtube.txt`, `russia-blacklist.txt`, `discord.txt`
+        Существующие ipset: `ipset-amazon.txt`, `ipset-ru.txt`, `ipset-dns.txt`, `ipset-exclude.txt`, `russia-youtube-rtmps.txt`
+
+  - type: dropdown
+    id: type
+    attributes:
+      label: Тип списка
+      description: "Что вы хотите добавить?"
+      options:
+        - Hostlist (список доменов)
+        - IPset (список IP-адресов)
+    validations:
+      required: true
+
+  - type: input
+    id: service_name
+    attributes:
+      label: Название сервиса / сайта
+      description: "Для какого сервиса или сайта нужно добавить записи"
+      placeholder: "Например: Twitch, Spotify, lovable.dev"
+    validations:
+      required: true
+
+  - type: textarea
+    id: entries
+    attributes:
+      label: Список доменов или IP-адресов
+      description: "Каждый домен/IP с новой строки. Можно оставить пустым, если прикладываете файл ниже."
+      placeholder: |
+        example.com
+        cdn.example.com
+        api.example.com
+    validations:
+      required: false
+
+  - type: textarea
+    id: file_upload
+    attributes:
+      label: Файл с доменами/IP
+      description: |
+        Перетащите сюда файл .txt со списком доменов или IP-адресов.
+        GitHub поддерживает drag & drop файлов в это поле.
+      placeholder: "Перетащите файл .txt сюда"
+    validations:
+      required: false
+
+  - type: dropdown
+    id: category
+    attributes:
+      label: Предлагаемая категория
+      description: "В какую категорию должны попасть эти записи?"
+      options:
+        - YouTube
+        - Discord
+        - Games
+        - Общий blacklist
+        - Новая категория
+    validations:
+      required: true
+
+  - type: input
+    id: new_category
+    attributes:
+      label: Название новой категории
+      description: "Если выбрали «Новая категория» выше — укажите её название"
+      placeholder: "Например: Streaming, VPN, Social"
+    validations:
+      required: false
+
+  - type: textarea
+    id: justification
+    attributes:
+      label: Обоснование
+      description: "Зачем нужно добавить эти домены/IP? Какой сервис перестал работать или блокируется?"
+      placeholder: "Сервис X не работает через zapret, потому что ..."
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: existing_check
+    attributes:
+      label: Проверка дубликатов
+      options:
+        - label: Я проверил существующие списки и убедился, что эти домены/IP ещё не добавлены
+          required: true
