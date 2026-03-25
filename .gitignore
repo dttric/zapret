@@ -58,3 +58,4 @@ AGENTS.md
 .claude/
 .editorconfig
 src/config/build_info.py
+/docs/changelog
