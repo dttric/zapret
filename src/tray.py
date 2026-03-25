@@ -5,7 +5,7 @@ import sys
 
 from PyQt6.QtWidgets import QMenu, QApplication, QStyle, QSystemTrayIcon
 from PyQt6.QtGui     import QAction, QIcon
-from PyQt6.QtCore    import QEvent, Qt
+from PyQt6.QtCore    import QEvent, Qt, QTimer
 
 try:
     import qtawesome as qta
@@ -157,6 +157,15 @@ class SystemTrayManager:
             self._tg_proxy_act.setIcon(qta.icon('fa5s.paper-plane', color='#60cdff'))
         self._tg_proxy_act.triggered.connect(self._toggle_tg_proxy)
         menu.addAction(self._tg_proxy_act)
+        # Connect manager signal for live tray text updates
+        try:
+            from ui.pages.telegram_proxy_page import _get_proxy_manager
+            _mgr = _get_proxy_manager()
+            _mgr.status_changed.connect(self._on_tg_proxy_status_changed)
+        except Exception:
+            pass
+        # Check autostart after a short delay (gives app time to initialize)
+        QTimer.singleShot(1000, self._check_tg_proxy_autostart)
 
         menu.addSeparator()
 
@@ -220,14 +229,15 @@ class SystemTrayManager:
                             )
                 except Exception:
                     pass
-                mgr.start_proxy(port=port, mode="socks5", host=host,
-                                upstream_config=upstream_config)
-                self._tg_proxy_act.setText(f"Telegram Proxy: вкл ({port})")
-                try:
-                    from config.reg import set_tg_proxy_enabled
-                    set_tg_proxy_enabled(True)
-                except Exception:
-                    pass
+                self._tg_proxy_act.setText("Telegram Proxy: запуск...")
+                import threading
+                threading.Thread(
+                    target=lambda: mgr.start_proxy(
+                        port=port, mode="socks5", host=host,
+                        upstream_config=upstream_config,
+                    ),
+                    daemon=True,
+                ).start()
         except Exception as e:
             try:
                 from log import log
@@ -246,6 +256,74 @@ class SystemTrayManager:
                 self._tg_proxy_act.setText("Telegram Proxy: выкл")
         except Exception:
             pass
+
+    def _on_tg_proxy_status_changed(self, running: bool):
+        """Update tray action text when proxy status changes (via signal)."""
+        try:
+            from ui.pages.telegram_proxy_page import _get_proxy_manager
+            mgr = _get_proxy_manager()
+            if running:
+                self._tg_proxy_act.setText(f"Telegram Proxy: вкл ({mgr.port})")
+                try:
+                    from config.reg import set_tg_proxy_enabled
+                    set_tg_proxy_enabled(True)
+                except Exception:
+                    pass
+            else:
+                self._tg_proxy_act.setText("Telegram Proxy: выкл")
+        except Exception:
+            pass
+
+    def _check_tg_proxy_autostart(self):
+        """Auto-start Telegram proxy if autostart is enabled in settings.
+        Called from tray (not from lazy-loaded page) to ensure it fires on app startup."""
+        try:
+            from config.reg import get_tg_proxy_autostart
+            if not get_tg_proxy_autostart():
+                return
+
+            from ui.pages.telegram_proxy_page import _get_proxy_manager
+            mgr = _get_proxy_manager()
+            if mgr.is_running:
+                return  # Already running
+
+            from config.reg import (get_tg_proxy_port, get_tg_proxy_host,
+                                     get_tg_proxy_upstream_enabled, get_tg_proxy_upstream_host,
+                                     get_tg_proxy_upstream_port, get_tg_proxy_upstream_mode,
+                                     get_tg_proxy_upstream_user, get_tg_proxy_upstream_pass)
+            port = get_tg_proxy_port()
+            host = get_tg_proxy_host()
+            upstream_config = None
+            try:
+                if get_tg_proxy_upstream_enabled():
+                    up_host = get_tg_proxy_upstream_host()
+                    up_port = get_tg_proxy_upstream_port()
+                    if up_host and up_port > 0:
+                        from telegram_proxy.wss_proxy import UpstreamProxyConfig
+                        upstream_config = UpstreamProxyConfig(
+                            enabled=True, host=up_host, port=up_port,
+                            mode=get_tg_proxy_upstream_mode(),
+                            username=get_tg_proxy_upstream_user(),
+                            password=get_tg_proxy_upstream_pass(),
+                        )
+            except Exception:
+                pass
+
+            # Start in background thread to avoid blocking GUI
+            import threading
+            threading.Thread(
+                target=lambda: mgr.start_proxy(
+                    port=port, mode="socks5", host=host,
+                    upstream_config=upstream_config,
+                ),
+                daemon=True,
+            ).start()
+        except Exception as e:
+            try:
+                from log import log
+                log(f"Tray TG proxy autostart error: {e}", "WARNING")
+            except Exception:
+                pass
 
     def _apply_menu_style(self, menu: QMenu):
         """Применяет стиль к меню трея"""

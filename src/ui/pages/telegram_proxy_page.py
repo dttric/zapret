@@ -10,6 +10,7 @@ from __future__ import annotations
 import os
 import threading
 import webbrowser
+from collections import deque
 from typing import TYPE_CHECKING
 
 from PyQt6.QtCore import Qt, QTimer, pyqtSignal, pyqtSlot
@@ -129,8 +130,7 @@ class TelegramProxyPage(BasePage):
         self._log_timer = QTimer(self)
         self._log_timer.timeout.connect(self._flush_log_buffer)
         self._log_timer.start(_LOG_REFRESH_MS)
-        # Auto-start if enabled
-        QTimer.singleShot(500, self._auto_start_check)
+        # Auto-start moved to tray.py — fires even if this tab is never opened
 
     def _setup_ui(self):
         # ── Tabs (SegmentedWidget) ──
@@ -510,7 +510,7 @@ class TelegramProxyPage(BasePage):
         ("149.154.167.91",  "DC4",          "kws4"),
         ("149.154.175.53",  "DC1",          "—"),
         ("149.154.175.55",  "DC1",          "—"),
-        ("149.154.175.100", "DC3 (->DC1)",  "—"),
+        ("149.154.175.100", "DC3 (→DC1)",  "—"),
         ("91.108.56.134",   "DC5",          "—"),
         ("91.108.56.149",   "DC5",          "—"),
         ("91.105.192.100",  "DC203 CDN",    "—"),
@@ -519,6 +519,8 @@ class TelegramProxyPage(BasePage):
         ("149.154.167.222", "DC2 media",    "—"),
         ("149.154.175.52",  "DC1 media",    "—"),
         ("91.108.56.102",   "DC5 media",    "—"),
+        ("149.154.175.102", "DC3 media",    "—"),
+        ("149.154.164.250", "DC4 media",    "—"),
     ]
 
     # ── WSS relay probe targets: kws (Web K) + zws (Web Z) ──
@@ -559,6 +561,7 @@ class TelegramProxyPage(BasePage):
             # ── Phase 0: WSS relay reachability (parallel with everything) ──
             from telegram_proxy.wss_proxy import check_relay_reachable
             relay_f = ex.submit(check_relay_reachable, timeout=5.0)
+            dns_relay_f = ex.submit(check_relay_reachable, relay_ip="149.154.167.99", timeout=5.0)
 
             # ── Phase 3: SNI + HTTP + proxy + winws2 + upstream (parallel) ──
             sni_f = ex.submit(self._test_sni_vs_ip)
@@ -601,6 +604,14 @@ class TelegramProxyPage(BasePage):
                 if relay_result["error"]:
                     results.append(f"  Ошибка: {relay_result['error']}")
             self._diag_result = "\n".join(results)
+
+            # DNS relay IP check (149.154.167.99 — known from DNS kws2.web.telegram.org)
+            dns_relay_result = dns_relay_f.result()
+            if dns_relay_result["reachable"]:
+                results.append(f"  DNS relay (149.154.167.99): OK ({dns_relay_result['ms']:.0f}ms)")
+            else:
+                results.append(f"  DNS relay (149.154.167.99): TIMEOUT ({dns_relay_result['ms']:.0f}ms)")
+            results.append("  (не используется — .220 стабильнее для медиа)")
 
             results.append("")
 
@@ -1019,10 +1030,22 @@ class TelegramProxyPage(BasePage):
     ) -> str:
         """Build honest summary from all test phases."""
 
+        def _dc_num(name: str):
+            """Extract DC number (1-5) from 'DC2', 'DC2 media', 'DC3 (→DC1)'."""
+            if not name.startswith("DC"):
+                return None
+            digits = ""
+            for ch in name[2:]:
+                if ch.isdigit():
+                    digits += ch
+                else:
+                    break
+            return int(digits) if digits and len(digits) <= 2 else None
+
         # ── Parse direct DC test results ──
         dc_status: dict[str, str] = {}
         # Check longest names first to avoid "DC2" matching "DC203 CDN" or "DC2 media"
-        dc_names_ordered = ("DC203 CDN", "DC5 media", "DC5", "DC4", "DC3 (->DC1)", "DC2 media", "DC2", "DC1 media", "DC1")
+        dc_names_ordered = ("DC203 CDN", "DC5 media", "DC5", "DC4 media", "DC4", "DC3 media", "DC3 (→DC1)", "DC2 media", "DC2", "DC1 media", "DC1")
         for line in dc_lines:
             for dc_name in dc_names_ordered:
                 if dc_name in line:
@@ -1058,19 +1081,10 @@ class TelegramProxyPage(BasePage):
         # Section 2: Per-DC status with WSS info
         summary.append("")
         summary.append("── Статус дата-центров ──")
-        for dc_name in ("DC1", "DC1 media", "DC2", "DC2 media", "DC3 (->DC1)", "DC4", "DC5", "DC5 media", "DC203 CDN"):
+        for dc_name in ("DC1", "DC1 media", "DC2", "DC2 media", "DC3 (→DC1)", "DC3 media", "DC4", "DC4 media", "DC5", "DC5 media", "DC203 CDN"):
             direct = dc_status.get(dc_name, "—")
             # Extract DC number for WSS matching
-            dc_num = None
-            # Match DC1, DC2, etc. but also "DC2 media", "DC3 (->DC1)"
-            dc_digits = ""
-            for ch in dc_name[2:]:
-                if ch.isdigit():
-                    dc_digits += ch
-                else:
-                    break
-            if dc_digits and len(dc_digits) <= 2:  # DC1-DC5, not DC203
-                dc_num = int(dc_digits)
+            dc_num = _dc_num(dc_name)
 
             if dc_num and dc_num in wss_ok_dcs:
                 wss_info = "WSS relay"
@@ -1122,12 +1136,12 @@ class TelegramProxyPage(BasePage):
             return "\n".join(summary)
 
         # WSS-capable DCs
-        bypassed_dcs = {
-            dc_name for dc_name, status in dc_status.items()
-            if status == "BLOCKED"
-            and dc_name.startswith("DC") and dc_name[2:].isdigit()
-            and int(dc_name[2:]) in wss_ok_dcs
-        }
+        bypassed_dcs = set()
+        for dc_name, status in dc_status.items():
+            if status == "BLOCKED":
+                num = _dc_num(dc_name)
+                if num is not None and num in wss_ok_dcs:
+                    bypassed_dcs.add(dc_name)
         blocked_no_wss = {
             dc_name for dc_name, status in dc_status.items()
             if status == "BLOCKED"
@@ -1235,6 +1249,9 @@ class TelegramProxyPage(BasePage):
         self._upstream_pass_edit.editingFinished.connect(self._on_upstream_pass_changed)
         self._upstream_mode_toggle.toggled.connect(self._on_upstream_mode_changed)
 
+        # Sync initial state — proxy may already be running (e.g., started from tray)
+        self._on_status_changed(mgr.is_running)
+
     def _load_settings(self):
         """Load settings from registry."""
         try:
@@ -1242,19 +1259,25 @@ class TelegramProxyPage(BasePage):
             port = get_tg_proxy_port()
             if port is None or port < 1024 or port > 65535:
                 port = 1353
+            self._port_spin.blockSignals(True)
             self._port_spin.setValue(port)
+            self._port_spin.blockSignals(False)
 
             host = get_tg_proxy_host()
             self._host_edit.setText(host)
 
+            self._autostart_toggle.toggle.blockSignals(True)
             self._autostart_toggle.toggle.setChecked(get_tg_proxy_autostart())
+            self._autostart_toggle.toggle.blockSignals(False)
             self._update_manual_instructions()
 
             # Load upstream proxy settings
             from config.reg import (get_tg_proxy_upstream_enabled, get_tg_proxy_upstream_host,
                                      get_tg_proxy_upstream_port, get_tg_proxy_upstream_mode,
                                      get_tg_proxy_upstream_user, get_tg_proxy_upstream_pass)
+            self._upstream_toggle.toggle.blockSignals(True)
             self._upstream_toggle.toggle.setChecked(get_tg_proxy_upstream_enabled())
+            self._upstream_toggle.toggle.blockSignals(False)
 
             # Determine which preset matches saved host/port (or fall back to manual)
             saved_host = get_tg_proxy_upstream_host()
@@ -1268,13 +1291,17 @@ class TelegramProxyPage(BasePage):
                     break
 
             if self._upstream_preset_row is not None:
+                self._upstream_preset_row.combo.blockSignals(True)
                 self._upstream_preset_row.combo.setCurrentIndex(preset_idx)
+                self._upstream_preset_row.combo.blockSignals(False)
 
             # Fill manual fields
             self._upstream_host_edit.setText(saved_host)
             upstream_port = saved_port
             if upstream_port > 0:
+                self._upstream_port_spin.blockSignals(True)
                 self._upstream_port_spin.setValue(upstream_port)
+                self._upstream_port_spin.blockSignals(False)
             self._upstream_user_edit.setText(get_tg_proxy_upstream_user())
             self._upstream_pass_edit.setText(get_tg_proxy_upstream_pass())
 
@@ -1287,9 +1314,11 @@ class TelegramProxyPage(BasePage):
                 if is_mtproxy:
                     self._current_mtproxy_link = self._upstream_presets[preset_idx].get("link", "")
 
+            self._upstream_mode_toggle.toggle.blockSignals(True)
             self._upstream_mode_toggle.toggle.setChecked(
                 get_tg_proxy_upstream_mode() == "always"
             )
+            self._upstream_mode_toggle.toggle.blockSignals(False)
         except Exception as e:
             log(f"TelegramProxyPage: load settings error: {e}", "WARNING")
             self._port_spin.setValue(1353)
@@ -1393,6 +1422,9 @@ class TelegramProxyPage(BasePage):
             except Exception:
                 pass
             return
+        # During async start, ignore clicks (button is disabled but belt-and-suspenders)
+        if getattr(self, '_starting', False):
+            return
         if mgr.is_running:
             self._stop_proxy()
         else:
@@ -1446,7 +1478,16 @@ class TelegramProxyPage(BasePage):
 
     @pyqtSlot()
     def _start_proxy(self):
+        if getattr(self, '_starting', False):
+            return  # Already starting in background
         mgr = _get_proxy_manager()
+        if mgr.is_running:
+            return  # Already running
+
+        self._starting = True
+        self._btn_toggle.setEnabled(False)
+        self._status_label.setText("Запуск прокси...")
+
         port = self._port_spin.value()
         host = self._host_edit.text().strip() or "127.0.0.1"
 
@@ -1476,8 +1517,23 @@ class TelegramProxyPage(BasePage):
                 f"(mode={upstream_config.mode}, user={upstream_config.username})"
             )
 
-        ok = mgr.start_proxy(port=port, mode="socks5", host=host,
-                              upstream_config=upstream_config)
+        def _bg_start():
+            ok = mgr.start_proxy(port=port, mode="socks5", host=host,
+                                  upstream_config=upstream_config)
+            self._start_result = ok
+            from PyQt6.QtCore import QMetaObject, Qt as QtNS
+            QMetaObject.invokeMethod(
+                self, "_finish_start",
+                QtNS.ConnectionType.QueuedConnection,
+            )
+        threading.Thread(target=_bg_start, daemon=True).start()
+
+    @pyqtSlot()
+    def _finish_start(self):
+        """Called on GUI thread after background start completes."""
+        self._starting = False
+        self._btn_toggle.setEnabled(True)
+        ok = getattr(self, '_start_result', False)
         if ok:
             try:
                 from config.reg import set_tg_proxy_enabled
@@ -1485,6 +1541,8 @@ class TelegramProxyPage(BasePage):
             except Exception:
                 pass
             self._check_relay_after_start()
+        else:
+            self._on_status_changed(False)
 
     def _check_relay_after_start(self):
         """Check relay reachability after proxy starts. Runs check in background.
@@ -1495,7 +1553,12 @@ class TelegramProxyPage(BasePage):
            - Port 80 works + TLS fails = something breaks TLS (likely zapret desync)
            - Port 80 also fails = ISP blocks the IP entirely
         3. Update status label + show InfoBar warning if needed
+        Uses generation counter to discard stale results after stop/restart.
         """
+        # Invalidate any previous relay check
+        self._relay_check_gen = getattr(self, '_relay_check_gen', 0) + 1
+        gen = self._relay_check_gen
+
         # Show "checking..." in status
         mgr = _get_proxy_manager()
         if mgr.is_running:
@@ -1507,6 +1570,11 @@ class TelegramProxyPage(BasePage):
             import time
             # Wait for proxy to warm up and WSS pool to fill
             time.sleep(2)
+
+            # Check if this generation is still current
+            if getattr(self, '_relay_check_gen', 0) != gen:
+                return  # Stale — proxy was stopped/restarted
+
             try:
                 from telegram_proxy.wss_proxy import check_relay_reachable
 
@@ -1514,12 +1582,18 @@ class TelegramProxyPage(BasePage):
                 # individual TLS connections randomly
                 best_result = None
                 for attempt in range(3):
+                    if getattr(self, '_relay_check_gen', 0) != gen:
+                        return  # Stale
                     result = check_relay_reachable(timeout=5.0)
                     if result["reachable"]:
                         best_result = result
                         break
                     if attempt < 2:
                         time.sleep(2)
+
+                # Final generation check before writing results
+                if getattr(self, '_relay_check_gen', 0) != gen:
+                    return  # Stale
 
                 if best_result and best_result["reachable"]:
                     self._relay_diag = {"status": "ok", "ms": best_result["ms"]}
@@ -1541,6 +1615,10 @@ class TelegramProxyPage(BasePage):
                         "http_ok": http_ok,
                         "zapret_running": zapret_running,
                     }
+
+                # Check generation before GUI callback
+                if getattr(self, '_relay_check_gen', 0) != gen:
+                    return  # Stale
 
                 from PyQt6.QtCore import QMetaObject, Qt as QtNS
                 QMetaObject.invokeMethod(
@@ -1653,10 +1731,17 @@ class TelegramProxyPage(BasePage):
             mgr = _get_proxy_manager()
             self._status_label.setText(f"Работает на {mgr.host}:{mgr.port}")
             self._btn_toggle.setText("Остановить")
+            # Reset speed tracking — new ProxyStats starts at 0
+            self._prev_bytes_sent = 0
+            self._prev_bytes_received = 0
+            self._speed_hist_up = deque(maxlen=5)
+            self._speed_hist_down = deque(maxlen=5)
         else:
             self._status_label.setText("Остановлен")
             self._btn_toggle.setText("Запустить")
             self._stats_label.setText("")
+            # Invalidate any ongoing relay check from a previous start
+            self._relay_check_gen = getattr(self, '_relay_check_gen', 0) + 1
 
         self._port_spin.setEnabled(not running)
         self._host_edit.setEnabled(not running)
@@ -1699,13 +1784,27 @@ class TelegramProxyPage(BasePage):
         self._prev_bytes_received = now_recv
         interval = 2.0
 
-        recv_zero = getattr(stats, 'recv_zero_count', 0)
-        recv_zero_str = f"  |  recv=0: {recv_zero}" if recv_zero > 0 else ""
+        # Rolling average over last 5 samples (10 seconds)
+        if not hasattr(self, '_speed_hist_up'):
+            self._speed_hist_up = deque(maxlen=5)
+            self._speed_hist_down = deque(maxlen=5)
+        self._speed_hist_up.append(delta_sent)
+        self._speed_hist_down.append(delta_recv)
+        avg_sent = sum(self._speed_hist_up) / len(self._speed_hist_up)
+        avg_recv = sum(self._speed_hist_down) / len(self._speed_hist_down)
+
+        recv_zero_per_dc = getattr(stats, 'recv_zero_per_dc', {})
+        if recv_zero_per_dc:
+            parts = [f"DC{dc}:{cnt}" for dc, cnt in sorted(recv_zero_per_dc.items()) if cnt > 0]
+            recv_zero_str = f"  |  recv=0: {' '.join(parts)}" if parts else ""
+        else:
+            recv_zero = getattr(stats, 'recv_zero_count', 0)
+            recv_zero_str = f"  |  recv=0: {recv_zero}" if recv_zero > 0 else ""
 
         self._stats_label.setText(
             f"Подключения: {stats.active_connections} акт. / {stats.total_connections} всего  |  "
-            f"↑ {_fmt_bytes(now_sent)} ({_fmt_speed(delta_sent, interval)})  "
-            f"↓ {_fmt_bytes(now_recv)} ({_fmt_speed(delta_recv, interval)})  |  "
+            f"↑ {_fmt_bytes(now_sent)} ({_fmt_speed(avg_sent, interval)})  "
+            f"↓ {_fmt_bytes(now_recv)} ({_fmt_speed(avg_recv, interval)})  |  "
             f"Uptime: {uptime_str}{recv_zero_str}"
         )
 

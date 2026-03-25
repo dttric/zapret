@@ -34,23 +34,28 @@ class TelegramProxyManager(QThread):
 
     @property
     def is_running(self) -> bool:
-        return self._controller is not None and self._controller.is_running
+        c = self._controller
+        return c is not None and c.is_running
 
     @property
     def stats(self) -> Optional[ProxyStats]:
-        return self._controller.stats if self._controller else None
+        c = self._controller
+        return c.stats if c else None
 
     @property
     def port(self) -> int:
-        return self._controller.port if self._controller else 1353
+        c = self._controller
+        return c.port if c else 1353
 
     @property
     def mode(self) -> str:
-        return self._controller.mode if self._controller else "socks5"
+        c = self._controller
+        return c.mode if c else "socks5"
 
     @property
     def host(self) -> str:
-        return self._controller.host if self._controller else "127.0.0.1"
+        c = self._controller
+        return c.host if c else "127.0.0.1"
 
     @property
     def proxy_logger(self):
@@ -134,5 +139,6 @@ class TelegramProxyManager(QThread):
             self._stats_timer.stop()
 
     def _emit_stats(self) -> None:
-        if self._controller and self._controller.is_running:
-            self.stats_updated.emit(self._controller.stats)
+        c = self._controller
+        if c and c.is_running:
+            self.stats_updated.emit(c.stats)
