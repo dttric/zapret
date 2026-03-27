@@ -9,7 +9,7 @@ from log import log
 
 from .ports import subtract_port_specs, union_port_specs
 from .preset_model import DEFAULT_PRESET_ICON_COLOR, Preset, normalize_preset_icon_color
-from .preset_storage import get_active_preset_path
+from .preset_storage import get_runtime_config_path
 
 
 def _strip_debug_from_base_args(base_args: str) -> str:
@@ -279,7 +279,7 @@ class Zapret2PresetSyncLayer:
         self._update_wf_out_ports_in_base_args = update_wf_out_ports_in_base_args or (lambda preset: preset.base_args)
 
     def sync_preset(self, preset: Preset, changed_category: str | None = None) -> bool:
-        active_path = get_active_preset_path()
+        active_path = get_runtime_config_path()
         is_basic_direct = self._is_basic_direct()
 
         try:
@@ -444,9 +444,21 @@ class Zapret2PresetSyncLayer:
             # otherwise mixed state can produce duplicate --out-range lines.
             args_lines.extend(strat_lines)
         else:
+            from .block_semantics import SEMANTIC_STATUS_STRUCTURED_SUPPORTED, analyze_block_semantics
+
             send_present = any(ln.lower().startswith("--lua-desync=send") for ln in strat_lines)
             syndata_present = any(ln.lower().startswith("--lua-desync=syndata") for ln in strat_lines)
-            strat_lines_no_out = [ln for ln in strat_lines if not ln.lower().startswith("--out-range=")]
+            strategy_semantics = analyze_block_semantics(strategy_text)
+            strat_lines_no_out = []
+            for ln in strat_lines:
+                semantics = analyze_block_semantics(ln)
+                if (
+                    strategy_semantics.out_range.status == SEMANTIC_STATUS_STRUCTURED_SUPPORTED
+                    and ln.lower().startswith("--out-range=")
+                    and semantics.out_range.status == SEMANTIC_STATUS_STRUCTURED_SUPPORTED
+                ):
+                    continue
+                strat_lines_no_out.append(ln)
             strategy_text_clean = "\n".join(strat_lines_no_out).strip()
             parts: list[str] = []
 
@@ -542,7 +554,7 @@ class Zapret2PresetSyncLayer:
         return success
 
     def _commit_generated_launch_config_text(self, content: str, *, log_message: str) -> bool:
-        active_path = get_active_preset_path()
+        active_path = get_runtime_config_path()
         try:
             active_path.parent.mkdir(parents=True, exist_ok=True)
             active_path.write_text(str(content or ""), encoding="utf-8")

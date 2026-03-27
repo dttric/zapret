@@ -144,32 +144,36 @@ class PresetManager:
         return result
 
     # ========================================================================
-    # ACTIVE PRESET OPERATIONS
+    # SELECTED SOURCE PRESET OPERATIONS
     # ========================================================================
 
-    def get_active_preset_name(self) -> Optional[str]:
+    def get_selected_source_preset_name(self) -> Optional[str]:
         """
         Gets name of the currently selected source preset.
 
         Returns:
-            Active preset name or None
+            Selected source preset name or None
         """
         try:
             from core.services import get_direct_flow_coordinator
 
-            return get_direct_flow_coordinator().get_selected_preset_name("direct_zapret2")
+            return get_direct_flow_coordinator().get_selected_source_preset_name("direct_zapret2")
         except Exception:
             try:
-                return self._get_store().get_active_preset_name()
+                return self._get_store().get_selected_source_preset_name()
             except Exception:
                 return None
 
-    def get_active_preset(self) -> Optional[Preset]:
+    def get_active_preset_name(self) -> Optional[str]:
+        """Compatibility alias for get_selected_source_preset_name()."""
+        return self.get_selected_source_preset_name()
+
+    def get_selected_source_preset(self) -> Optional[Preset]:
         """
         Loads the currently selected source preset with caching.
 
         Returns:
-            Active Preset or None
+            Selected source Preset or None
         """
         # Check cache validity
         if self._active_preset_cache is not None:
@@ -178,7 +182,7 @@ class PresetManager:
                 # Cache is valid
                 return self._active_preset_cache
 
-        name = self.get_active_preset_name()
+        name = self.get_selected_source_preset_name()
         preset = None
         if name:
             preset = self.load_preset(name)
@@ -189,6 +193,10 @@ class PresetManager:
             self._active_preset_mtime = self._get_active_file_mtime()
 
         return preset
+
+    def get_active_preset(self) -> Optional[Preset]:
+        """Compatibility alias for get_selected_source_preset()."""
+        return self.get_selected_source_preset()
 
     @staticmethod
     def _extract_icon_color_from_header(header: str) -> str:
@@ -1288,12 +1296,11 @@ class PresetManager:
             except Exception:
                 args = args or ""
 
-        from .txt_preset_parser import (
-            extract_strategy_args,
-            extract_syndata_from_args,
-            extract_send_from_args,
-            extract_out_range_from_args
+        from .block_semantics import (
+            apply_structured_block_overrides_to_category,
+            reset_structured_advanced_state,
         )
+        from .txt_preset_parser import extract_strategy_args
 
         if args:
             protocol = (category_info.get("protocol") or "").upper()
@@ -1307,42 +1314,11 @@ class PresetManager:
                 if is_udp:
                     cat.udp_args = pure_strategy_args
                     cat.tcp_args = ""
-                    
-                    # Update out-range for UDP
-                    out_range = extract_out_range_from_args(args)
-                    cat.syndata_udp.out_range = int(out_range.get("out_range", 0) or 0)
-                    cat.syndata_udp.out_range_mode = str(out_range.get("out_range_mode") or "n")
+                    apply_structured_block_overrides_to_category(cat, args, protocol="udp")
                 else:
                     cat.tcp_args = pure_strategy_args
                     cat.udp_args = ""
-                    
-                    # Update syndata/send/out-range for TCP
-                    out_range = extract_out_range_from_args(args)
-                    cat.syndata_tcp.out_range = int(out_range.get("out_range", 0) or 0)
-                    cat.syndata_tcp.out_range_mode = str(out_range.get("out_range_mode") or "n")
-                        
-                    syndata = extract_syndata_from_args(args)
-                    if syndata.get("enabled"):
-                        cat.syndata_tcp.enabled = True
-                        cat.syndata_tcp.blob = syndata.get("blob", "none")
-                        cat.syndata_tcp.tls_mod = syndata.get("tls_mod", "none")
-                        cat.syndata_tcp.autottl_delta = syndata.get("autottl_delta", 0)
-                        cat.syndata_tcp.autottl_min = syndata.get("autottl_min", 3)
-                        cat.syndata_tcp.autottl_max = syndata.get("autottl_max", 20)
-                        cat.syndata_tcp.tcp_flags_unset = syndata.get("tcp_flags_unset", "none")
-                    else:
-                        cat.syndata_tcp.enabled = False
-                        
-                    send = extract_send_from_args(args)
-                    if send.get("send_enabled"):
-                        cat.syndata_tcp.send_enabled = True
-                        cat.syndata_tcp.send_repeats = send.get("send_repeats", 2)
-                        cat.syndata_tcp.send_ip_ttl = send.get("send_ip_ttl", 0)
-                        cat.syndata_tcp.send_ip6_ttl = send.get("send_ip6_ttl", 0)
-                        cat.syndata_tcp.send_ip_id = send.get("send_ip_id", "")
-                        cat.syndata_tcp.send_badsum = send.get("send_badsum", False)
-                    else:
-                        cat.syndata_tcp.send_enabled = False
+                    apply_structured_block_overrides_to_category(cat, args, protocol="tcp")
             else:
                 # Basic mode: keep the strategy exact strings as they are in the file.
                 if is_udp:
@@ -1351,15 +1327,9 @@ class PresetManager:
                 else:
                     cat.tcp_args = args
                     cat.udp_args = ""
-                    
-                # We must also explicitly disable dynamic syndata/send/out-range injection 
-                # so get_full_tcp_args doesn't append default values on top of the raw args.
-                cat.syndata_tcp.enabled = False
-                cat.syndata_tcp.send_enabled = False
-                cat.syndata_tcp.out_range = 0
-                cat.syndata_tcp.out_range_mode = "n"
-                cat.syndata_udp.out_range = 0
-                cat.syndata_udp.out_range_mode = "n"
+
+                # Keep raw strategy text authoritative in basic mode.
+                reset_structured_advanced_state(cat)
 
     def set_strategy_selections(
         self,

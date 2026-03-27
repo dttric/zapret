@@ -1,15 +1,12 @@
 from __future__ import annotations
 
-import re
 from pathlib import Path
 
+from .block_semantics import analyze_block_semantics, has_explicit_out_range as _has_explicit_out_range
 from .txt_preset_parser import parse_preset_file
 
-_EXPLICIT_OUT_RANGE_RE = re.compile(r"--out-range=-[nd]\d+|:out_range=-[nd]\d+(?=(:|\s|$))")
-
-
 def has_explicit_out_range(args_text: str) -> bool:
-    return bool(_EXPLICIT_OUT_RANGE_RE.search(str(args_text or "")))
+    return _has_explicit_out_range(args_text)
 
 
 def _block_warning_label(block) -> str:
@@ -31,7 +28,8 @@ def collect_missing_out_range_labels_from_file(preset_path: str | Path) -> list[
 
     for block in data.categories:
         block_text = str(getattr(block, "raw_args", "") or getattr(block, "args", "") or "")
-        if has_explicit_out_range(block_text):
+        semantics = analyze_block_semantics(block_text)
+        if not semantics.should_warn_about_out_range:
             continue
 
         label = _block_warning_label(block)
@@ -42,4 +40,3 @@ def collect_missing_out_range_labels_from_file(preset_path: str | Path) -> list[
         labels.append(label)
 
     return labels
-

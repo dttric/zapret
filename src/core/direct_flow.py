@@ -80,6 +80,9 @@ class DirectFlowCoordinator:
     def get_selected_source_preset(self, launch_method: str):
         return self._ensure_selected_source_preset(launch_method)
 
+    def get_selected_source_preset_name(self, launch_method: str) -> str:
+        return self.get_selected_source_preset(launch_method).manifest.name
+
     def get_selected_source_path(self, launch_method: str) -> Path:
         selected = self.get_selected_source_preset(launch_method)
         from core.services import get_app_paths
@@ -91,7 +94,7 @@ class DirectFlowCoordinator:
         return self.ensure_launch_profile(launch_method, require_filters=False).launch_config_path
 
     def get_selected_preset_name(self, launch_method: str) -> str:
-        return self.get_selected_source_preset(launch_method).manifest.name
+        return self.get_selected_source_preset_name(launch_method)
 
     def is_selected_preset(self, launch_method: str, preset_name: str) -> bool:
         current = (self.get_selected_preset_name(launch_method) or "").strip().lower()
@@ -182,9 +185,9 @@ class DirectFlowCoordinator:
     def _runtime_path(self, launch_method: str) -> Path:
         method = self._normalize_method(launch_method)
         if method == "direct_zapret2":
-            from preset_zapret2 import get_active_preset_path
+            from preset_zapret2 import get_runtime_config_path
 
-            return get_active_preset_path()
+            return get_runtime_config_path()
 
         from preset_zapret1 import get_active_preset_path_v1
 

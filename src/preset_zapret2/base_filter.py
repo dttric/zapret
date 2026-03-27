@@ -1,8 +1,9 @@
 """
-Build category base filter lines for preset-zapret2.txt.
+Build category base filter lines for a direct_zapret2 source preset.
 
-The GUI stores the active preset as a winws2 config-like text file where each
-category block starts with a "base filter" (ports/L7 + hostlist/ipset/etc).
+The GUI stores the selected source preset as a winws2 config-like text file
+where each category block starts with a "base filter" (ports/L7 +
+hostlist/ipset/etc).
 
 This module builds these base filter lines from `categories.txt` (loaded via
 `preset_zapret2.catalog`) and normalizes list filenames to paths that winws2

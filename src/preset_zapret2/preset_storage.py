@@ -9,7 +9,7 @@ Presets are stored in a stable per-user directory (Windows):
   %APPDATA%\\zapret\\presets_v2
 
 This avoids reliance on the installation folder location.
-Selected preset state is managed by the core selection service.
+Selected source preset state is managed by the core selection service.
 """
 import os
 import re
@@ -109,14 +109,19 @@ def get_preset_path(name: str) -> Path:
     return get_presets_dir() / f"{safe_name}.txt"
 
 
-def get_active_preset_path() -> Path:
+def get_runtime_config_path() -> Path:
     """
-    Returns path to generated runtime config for the selected preset.
+    Returns path to the generated runtime config for direct_zapret2.
 
     Returns:
         Path to runtime effective config for winws2
     """
     return _core_paths().effective_config_path
+
+
+def get_active_preset_path() -> Path:
+    """Compatibility alias for get_runtime_config_path()."""
+    return get_runtime_config_path()
 
 
 def get_user_settings_path() -> Path:
@@ -203,6 +208,13 @@ def load_preset(name: str) -> Optional[Preset]:
     Returns:
         Preset object or None if not found
     """
+    from .block_semantics import (
+        SEMANTIC_STATUS_STRUCTURED_SUPPORTED,
+        analyze_block_semantics,
+        extract_structured_out_range,
+        extract_structured_send,
+        extract_structured_syndata,
+    )
     from .preset_model import Preset, CategoryConfig, SyndataSettings
     from .txt_preset_parser import PresetData, parse_preset_file
 
@@ -264,30 +276,32 @@ def load_preset(name: str) -> Optional[Preset]:
 
             cat = preset.categories[cat_name]
 
-            # Restore per-protocol advanced settings only when the parser extracted
-            # real structured state. Bare sentinels like {"enabled": False,
-            # "send_enabled": False} mean "keep this block raw-only".
-            syndata_dict = getattr(block, "syndata_dict", None)
-            has_structured_advanced_state = _has_meaningful_structured_advanced_state(syndata_dict)
+            # Restore structured advanced settings only when the semantic layer says
+            # the block is structurally editable. Raw-only and invalid tokens stay
+            # in raw strategy_args and must not be partially hydrated.
+            block_text_for_semantics = str(raw_text or getattr(block, "args", "") or "")
+            block_semantics = analyze_block_semantics(block_text_for_semantics)
             if block.protocol == "tcp":
-                if has_structured_advanced_state:
-                    base = SyndataSettings.get_defaults().to_dict()
-                    base.update(syndata_dict)
-                else:
-                    base = SyndataSettings.get_defaults().to_dict()
-                    base["enabled"] = False
-                    base["send_enabled"] = False
-                    base["out_range"] = 0
-                    base["out_range_mode"] = "n"
+                base = SyndataSettings.get_defaults().to_dict()
+                base["enabled"] = False
+                base["send_enabled"] = False
+                base["out_range"] = 0
+                base["out_range_mode"] = "n"
+
+                if block_semantics.out_range.status == SEMANTIC_STATUS_STRUCTURED_SUPPORTED:
+                    base.update(extract_structured_out_range(block_text_for_semantics))
+                if block_semantics.syndata.status == SEMANTIC_STATUS_STRUCTURED_SUPPORTED:
+                    base.update(extract_structured_syndata(block_text_for_semantics))
+                if block_semantics.send.status == SEMANTIC_STATUS_STRUCTURED_SUPPORTED:
+                    base.update(extract_structured_send(block_text_for_semantics))
                 cat.syndata_tcp = SyndataSettings.from_dict(base)
             elif block.protocol == "udp":
-                if has_structured_advanced_state:
-                    base = SyndataSettings.get_defaults_udp().to_dict()
-                    base.update(syndata_dict)
-                else:
-                    base = SyndataSettings.get_defaults_udp().to_dict()
-                    base["out_range"] = 0
-                    base["out_range_mode"] = "n"
+                base = SyndataSettings.get_defaults_udp().to_dict()
+                base["out_range"] = 0
+                base["out_range_mode"] = "n"
+
+                if block_semantics.out_range.status == SEMANTIC_STATUS_STRUCTURED_SUPPORTED:
+                    base.update(extract_structured_out_range(block_text_for_semantics))
                 cat.syndata_udp = SyndataSettings.from_dict(base)
 
             # Set args based on protocol
@@ -426,39 +440,6 @@ def _parse_timestamps_from_header(header: str) -> Tuple[str, str]:
     """Backward-compatible helper returning (created, modified) only."""
     created, modified, _desc, _icon = _parse_metadata_from_header(header)
     return created, modified
-
-
-def _has_meaningful_structured_advanced_state(data: object) -> bool:
-    if not isinstance(data, dict) or not data:
-        return False
-
-    for key, value in data.items():
-        if key == "enabled":
-            if bool(value):
-                return True
-            continue
-        if key == "send_enabled":
-            if bool(value):
-                return True
-            continue
-        if key in {
-            "blob",
-            "tls_mod",
-            "autottl_delta",
-            "autottl_min",
-            "autottl_max",
-            "out_range",
-            "out_range_mode",
-            "tcp_flags_unset",
-            "send_repeats",
-            "send_ip_ttl",
-            "send_ip6_ttl",
-            "send_ip_id",
-            "send_badsum",
-        }:
-            return True
-
-    return False
 
 
 def save_preset(preset: Preset) -> bool:

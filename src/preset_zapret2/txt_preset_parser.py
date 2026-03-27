@@ -16,6 +16,16 @@ from pathlib import Path, PureWindowsPath
 from typing import Dict, List, Optional, Tuple, Set
 
 from log import log
+from .block_semantics import (
+    SEMANTIC_STATUS_ABSENT,
+    SEMANTIC_STATUS_STRUCTURED_SUPPORTED,
+    analyze_block_semantics,
+    extract_structured_out_range,
+    extract_structured_send,
+    extract_structured_syndata,
+    should_preserve_token_raw,
+    strip_structured_inline_out_range,
+)
 
 _CATEGORY_FILTER_CACHE: Optional[Dict[str, List[Tuple[str, Set[str]]]]] = None
 _CATEGORY_INFO_CACHE: Optional[Dict[str, Dict]] = None
@@ -853,13 +863,17 @@ def extract_strategy_args(
 
     tokens = re.findall(r"--[^\s]+", args or "")
     strategy_tokens = []
+    block_semantics = analyze_block_semantics(args)
 
     for token in tokens:
         token = token.strip()
         if not token:
             continue
 
-        token = _strip_inline_out_range_if_supported(token)
+        token_semantics = analyze_block_semantics(token)
+        token_original = token
+        if block_semantics.out_range.status == SEMANTIC_STATUS_STRUCTURED_SUPPORTED:
+            token = _strip_inline_out_range_if_supported(token)
 
         # Skip tokens that are part of category base_filter (important for L7 payload filters),
         # otherwise they accumulate on each preset sync.
@@ -874,11 +888,21 @@ def extract_strategy_args(
         # Skip filter/list selector tokens and non-strategy transport helpers.
         if token_l.startswith(_FILTER_SELECTOR_PREFIXES):
             continue
-        if token_l.startswith('--out-range'):
+        if (
+            block_semantics.out_range.status == SEMANTIC_STATUS_STRUCTURED_SUPPORTED
+            and token_original.lower().startswith('--out-range')
+            and token_semantics.out_range.status == SEMANTIC_STATUS_STRUCTURED_SUPPORTED
+        ):
             continue
-        if token_l.startswith('--lua-desync=syndata') and _can_roundtrip_syndata_token(token):
+        if (
+            block_semantics.syndata.status == SEMANTIC_STATUS_STRUCTURED_SUPPORTED
+            and token_semantics.syndata.status == SEMANTIC_STATUS_STRUCTURED_SUPPORTED
+        ):
             continue
-        if token_l.startswith('--lua-desync=send') and _can_roundtrip_send_token(token):
+        if (
+            block_semantics.send.status == SEMANTIC_STATUS_STRUCTURED_SUPPORTED
+            and token_semantics.send.status == SEMANTIC_STATUS_STRUCTURED_SUPPORTED
+        ):
             continue
 
         strategy_tokens.append(token)
@@ -887,60 +911,11 @@ def extract_strategy_args(
 
 
 def _can_roundtrip_send_token(token: str) -> bool:
-    token_l = str(token or "").strip().lower()
-    prefix = "--lua-desync=send"
-    if token_l == prefix:
-        return False
-    if not token_l.startswith(prefix + ":"):
-        return False
-
-    payload = str(token or "").strip()[len(prefix) + 1:]
-    if not payload:
-        return False
-
-    supported = {"repeats", "ttl", "ttl6", "ip_id", "badsum"}
-    for part in payload.split(":"):
-        if "=" not in part:
-            return False
-        key, _sep, value = part.partition("=")
-        key_l = str(key or "").strip().lower()
-        value_s = str(value or "").strip()
-        if key_l not in supported:
-            return False
-        if key_l in {"repeats", "ttl", "ttl6"} and not re.fullmatch(r"-?\d+", value_s):
-            return False
-        if key_l == "badsum" and value_s.lower() not in {"true", "false"}:
-            return False
-    return True
+    return analyze_block_semantics(token).send.status == SEMANTIC_STATUS_STRUCTURED_SUPPORTED
 
 
 def _can_roundtrip_syndata_token(token: str) -> bool:
-    token_l = str(token or "").strip().lower()
-    prefix = "--lua-desync=syndata"
-    if token_l == prefix:
-        return False
-    if not token_l.startswith(prefix + ":"):
-        return False
-
-    payload = str(token or "").strip()[len(prefix) + 1:]
-    if not payload:
-        return False
-
-    supported = {"blob", "tls_mod", "ip_autottl", "tcp_flags_unset"}
-    saw_blob = False
-    for part in payload.split(":"):
-        if "=" not in part:
-            return False
-        key, _sep, value = part.partition("=")
-        key_l = str(key or "").strip().lower()
-        if key_l not in supported:
-            return False
-        if key_l == "blob":
-            saw_blob = True
-        elif key_l == "ip_autottl":
-            if not re.fullmatch(r"-?\d+,\d+-\d+", str(value or "").strip()):
-                return False
-    return saw_blob
+    return analyze_block_semantics(token).syndata.status == SEMANTIC_STATUS_STRUCTURED_SUPPORTED
 
 
 def _should_preserve_raw_inline_out_range(token: str) -> bool:
@@ -948,18 +923,11 @@ def _should_preserve_raw_inline_out_range(token: str) -> bool:
     token_l = token_s.lower()
     if ":out_range=" not in token_l:
         return False
-    if token_l.startswith("--lua-desync=syndata"):
-        return not _can_roundtrip_syndata_token(token_s)
-    if token_l.startswith("--lua-desync=send"):
-        return not _can_roundtrip_send_token(token_s)
-    return False
+    return should_preserve_token_raw(token_s)
 
 
 def _strip_inline_out_range_if_supported(token: str) -> str:
-    token_s = str(token or "").strip()
-    if _should_preserve_raw_inline_out_range(token_s):
-        return token_s
-    return re.sub(r':out_range=-[nd]\d+(?=(:|$))', '', token_s)
+    return strip_structured_inline_out_range(str(token or "").strip())
 
 
 def extract_strategy_args_incl_syndata(
@@ -993,13 +961,17 @@ def extract_strategy_args_incl_syndata(
 
     tokens = re.findall(r"--[^\s]+", args or "")
     strategy_tokens = []
+    block_semantics = analyze_block_semantics(args)
 
     for token in tokens:
         token = token.strip()
         if not token:
             continue
 
-        token = _strip_inline_out_range_if_supported(token)
+        token_semantics = analyze_block_semantics(token)
+        token_original = token
+        if block_semantics.out_range.status == SEMANTIC_STATUS_STRUCTURED_SUPPORTED:
+            token = _strip_inline_out_range_if_supported(token)
 
         try:
             normalized = _normalize_filter_token(token)
@@ -1012,7 +984,11 @@ def extract_strategy_args_incl_syndata(
         # Skip filter/list selector tokens and out-range; keep syndata/send.
         if token_l.startswith(_FILTER_SELECTOR_PREFIXES):
             continue
-        if token_l.startswith('--out-range'):
+        if (
+            block_semantics.out_range.status == SEMANTIC_STATUS_STRUCTURED_SUPPORTED
+            and token_original.lower().startswith('--out-range')
+            and token_semantics.out_range.status == SEMANTIC_STATUS_STRUCTURED_SUPPORTED
+        ):
             continue
 
         strategy_tokens.append(token)
@@ -1031,49 +1007,7 @@ def extract_syndata_from_args(args: str) -> Dict:
         Dict with syndata parameters. If the `--lua-desync=syndata:` line is absent,
         returns `{"enabled": False}`.
     """
-    result = {'enabled': False}
-
-    # Format: --lua-desync=syndata:blob=tls_google:ip_autottl=-2,3-20
-    match = re.search(r'--lua-desync=syndata:([^\s\n]+)', args)
-    if match:
-        full_token = match.group(0)
-        if not _can_roundtrip_syndata_token(full_token):
-            return result
-        result['enabled'] = True
-        syndata_str = match.group(1)
-        # Format: blob=tls_google:ip_autottl=-2,3-20:tls_mod=value
-        parts = syndata_str.split(':')
-        saw_autottl = False
-
-        for part in parts:
-            if '=' not in part:
-                continue
-            key, value = part.split('=', 1)
-
-            if key == 'blob':
-                result['blob'] = value
-            elif key == 'tls_mod':
-                result['tls_mod'] = value
-            elif key == 'ip_autottl':
-                saw_autottl = True
-                # Format: -2,3-20 (delta,min-max)
-                autottl_match = re.match(r'(-?\d+),(\d+)-(\d+)', value)
-                if autottl_match:
-                    result['autottl_delta'] = int(autottl_match.group(1))
-                    result['autottl_min'] = int(autottl_match.group(2))
-                    result['autottl_max'] = int(autottl_match.group(3))
-            elif key == 'tcp_flags_unset':
-                result['tcp_flags_unset'] = value
-
-        # OFF is represented by omitting `ip_autottl` from the syndata line
-        # (see CategoryConfig._get_syndata_args). Preserve that as delta=0 so UI
-        # does not snap back to defaults after active-file reload.
-        if not saw_autottl:
-            result['autottl_delta'] = 0
-
-        return result
-
-    return result
+    return extract_structured_syndata(args)
 
 
 def extract_out_range_from_args(args: str) -> Dict:
@@ -1086,27 +1020,7 @@ def extract_out_range_from_args(args: str) -> Dict:
     Returns:
         Dict with out_range parameters (empty if not found)
     """
-    match = re.search(r'--out-range=-([nd])(\d+)', args)
-    if not match:
-        for token in re.findall(r"--[^\s]+", args or ""):
-            token = str(token or "").strip()
-            if not token or ":out_range=" not in token.lower():
-                continue
-            if _should_preserve_raw_inline_out_range(token):
-                continue
-            match = re.search(r':out_range=-([nd])(\d+)(?=(:|\s|$))', token)
-            if match:
-                break
-        else:
-            return {}
-
-    mode = match.group(1) or "n"
-    value = int(match.group(2))
-
-    return {
-        'out_range': value,
-        'out_range_mode': mode
-    }
+    return extract_structured_out_range(args)
 
 
 def extract_send_from_args(args: str) -> Dict:
@@ -1120,47 +1034,7 @@ def extract_send_from_args(args: str) -> Dict:
         Dict with send parameters. If the `--lua-desync=send:` line is absent,
         returns `{"send_enabled": False}`.
     """
-    result = {'send_enabled': False}
-
-    # Format: --lua-desync=send:repeats=2:ttl=0
-    match = re.search(r'--lua-desync=send:([^\s\n]+)', args)
-    if match:
-        full_token = match.group(0)
-        if not _can_roundtrip_send_token(full_token):
-            return result
-        result['send_enabled'] = True
-        send_str = match.group(1)
-        # Format: repeats=2:ttl=0:badsum=true
-        parts = send_str.split(':')
-
-        for part in parts:
-            if '=' not in part:
-                continue
-            key, value = part.split('=', 1)
-
-            if key == 'repeats':
-                try:
-                    result['send_repeats'] = int(value)
-                except ValueError:
-                    continue
-            elif key == 'ttl':
-                try:
-                    result['send_ip_ttl'] = int(value)
-                except ValueError:
-                    continue
-            elif key == 'ttl6':
-                try:
-                    result['send_ip6_ttl'] = int(value)
-                except ValueError:
-                    continue
-            elif key == 'ip_id':
-                result['send_ip_id'] = value
-            elif key == 'badsum':
-                result['send_badsum'] = value.lower() == 'true'
-
-        return result
-
-    return result
+    return extract_structured_send(args)
 
 
 def parse_preset_file(file_path: Path) -> PresetData:
@@ -1239,7 +1113,7 @@ def parse_preset_content(content: str) -> PresetData:
             if name_match:
                 data.name = name_match.group(1).strip()
 
-            # Extract active preset
+            # Extract legacy ActivePreset header if present.
             active_match = re.match(r'#\s*ActivePreset:\s*(.+)', stripped, re.IGNORECASE)
             if active_match:
                 data.active_preset = active_match.group(1).strip()
@@ -1399,11 +1273,23 @@ def parse_preset_content(content: str) -> PresetData:
 
             # Extract syndata/send/out-range parameters.
             # NOTE: syndata/send are TCP-only (SYN-based). For UDP/QUIC we intentionally ignore them.
+            block_semantics = analyze_block_semantics(block_args)
             syndata_dict = {}
-            syndata_dict.update(extract_out_range_from_args(block_args))
+            structured_out_range = extract_out_range_from_args(block_args)
+            if structured_out_range:
+                syndata_dict.update(structured_out_range)
             if protocol == "tcp":
-                syndata_dict.update(extract_syndata_from_args(block_args))
-                syndata_dict.update(extract_send_from_args(block_args))
+                if block_semantics.syndata.status == SEMANTIC_STATUS_STRUCTURED_SUPPORTED:
+                    syndata_dict.update(extract_syndata_from_args(block_args))
+                elif block_semantics.syndata.status != SEMANTIC_STATUS_ABSENT:
+                    syndata_dict["enabled"] = False
+                    syndata_dict.setdefault("send_enabled", False)
+
+                if block_semantics.send.status == SEMANTIC_STATUS_STRUCTURED_SUPPORTED:
+                    syndata_dict.update(extract_send_from_args(block_args))
+                elif block_semantics.send.status != SEMANTIC_STATUS_ABSENT:
+                    syndata_dict["send_enabled"] = False
+                    syndata_dict.setdefault("enabled", False)
 
                 # Clean up: if autottl is already present in a separate syndata line,
                 # strip redundant `:ip_autottl=...` fragments from strategy lines.

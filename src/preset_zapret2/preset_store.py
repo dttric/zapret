@@ -46,7 +46,7 @@ class PresetStore(QObject):
     # Emitted when the preset list or content changes (add/delete/rename/import/reset).
     presets_changed = pyqtSignal()
 
-    # Emitted when the active preset is switched. Argument: new active preset name.
+    # Emitted when the selected source preset is switched. Argument: new preset name.
     preset_switched = pyqtSignal(str)
 
     # Emitted when a single preset's content is updated (save/sync).
@@ -71,7 +71,7 @@ class PresetStore(QObject):
         # Flag: initial load done?
         self._loaded = False
 
-        # Cached selected preset name from direct core state.
+        # Cached selected source preset name from direct core state.
         self._active_name: Optional[str] = None
 
     # ── Public API: Read ─────────────────────────────────────────────────
@@ -91,10 +91,14 @@ class PresetStore(QObject):
         self._ensure_loaded()
         return sorted(self._presets.keys(), key=lambda s: s.lower())
 
-    def get_active_preset_name(self) -> Optional[str]:
-        """Returns the currently active preset name."""
+    def get_selected_source_preset_name(self) -> Optional[str]:
+        """Returns the currently selected source preset name."""
         self._ensure_loaded()
         return self._active_name
+
+    def get_active_preset_name(self) -> Optional[str]:
+        """Compatibility alias for get_selected_source_preset_name()."""
+        return self.get_selected_source_preset_name()
 
     def preset_exists(self, name: str) -> bool:
         """Checks if preset exists in the store."""
@@ -131,18 +135,22 @@ class PresetStore(QObject):
 
     def notify_preset_switched(self, name: str) -> None:
         """
-        Called after the active preset is switched.
-        Updates the cached active name and emits preset_switched.
+        Called after the selected source preset is switched.
+        Updates the cached selected name and emits preset_switched.
         """
         self._active_name = name
         self.preset_switched.emit(name)
 
     def notify_active_name_changed(self) -> None:
-        """Re-reads the selected preset name from core state."""
+        """Compatibility alias for notify_selected_source_preset_changed()."""
+        self.notify_selected_source_preset_changed()
+
+    def notify_selected_source_preset_changed(self) -> None:
+        """Re-reads the selected source preset name from core state."""
         try:
             from core.services import get_direct_flow_coordinator
 
-            self._active_name = get_direct_flow_coordinator().get_selected_preset_name("direct_zapret2")
+            self._active_name = get_direct_flow_coordinator().get_selected_source_preset_name("direct_zapret2")
         except Exception:
             self._active_name = None
 
@@ -171,7 +179,7 @@ class PresetStore(QObject):
         try:
             from core.services import get_direct_flow_coordinator
 
-            self._active_name = get_direct_flow_coordinator().get_selected_preset_name("direct_zapret2")
+            self._active_name = get_direct_flow_coordinator().get_selected_source_preset_name("direct_zapret2")
         except Exception:
             self._active_name = None
         self._loaded = True

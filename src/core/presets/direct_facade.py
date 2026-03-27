@@ -105,13 +105,12 @@ def _drop_active_preset_headers(source_text: str) -> str:
 
 
 def _apply_zapret2_strategy_args(preset, category_key: str, strategy_id: str) -> None:
-    from preset_zapret2.catalog import load_categories, load_strategies
-    from preset_zapret2.txt_preset_parser import (
-        extract_out_range_from_args,
-        extract_send_from_args,
-        extract_strategy_args,
-        extract_syndata_from_args,
+    from preset_zapret2.block_semantics import (
+        apply_structured_block_overrides_to_category,
+        reset_structured_advanced_state,
     )
+    from preset_zapret2.catalog import load_categories, load_strategies
+    from preset_zapret2.txt_preset_parser import extract_strategy_args
 
     category = (preset.categories or {}).get(category_key)
     if not category:
@@ -156,41 +155,12 @@ def _apply_zapret2_strategy_args(preset, category_key: str, strategy_id: str) ->
         if is_udp:
             category.udp_args = pure_strategy_args
             category.tcp_args = ""
-
-            out_range = extract_out_range_from_args(args)
-            category.syndata_udp.out_range = int(out_range.get("out_range", 0) or 0)
-            category.syndata_udp.out_range_mode = str(out_range.get("out_range_mode") or "n")
+            apply_structured_block_overrides_to_category(category, args, protocol="udp")
             return
 
         category.tcp_args = pure_strategy_args
         category.udp_args = ""
-
-        out_range = extract_out_range_from_args(args)
-        category.syndata_tcp.out_range = int(out_range.get("out_range", 0) or 0)
-        category.syndata_tcp.out_range_mode = str(out_range.get("out_range_mode") or "n")
-
-        syndata = extract_syndata_from_args(args)
-        if syndata.get("enabled"):
-            category.syndata_tcp.enabled = True
-            category.syndata_tcp.blob = syndata.get("blob", "none")
-            category.syndata_tcp.tls_mod = syndata.get("tls_mod", "none")
-            category.syndata_tcp.autottl_delta = syndata.get("autottl_delta", 0)
-            category.syndata_tcp.autottl_min = syndata.get("autottl_min", 3)
-            category.syndata_tcp.autottl_max = syndata.get("autottl_max", 20)
-            category.syndata_tcp.tcp_flags_unset = syndata.get("tcp_flags_unset", "none")
-        else:
-            category.syndata_tcp.enabled = False
-
-        send = extract_send_from_args(args)
-        if send.get("send_enabled"):
-            category.syndata_tcp.send_enabled = True
-            category.syndata_tcp.send_repeats = send.get("send_repeats", 2)
-            category.syndata_tcp.send_ip_ttl = send.get("send_ip_ttl", 0)
-            category.syndata_tcp.send_ip6_ttl = send.get("send_ip6_ttl", 0)
-            category.syndata_tcp.send_ip_id = send.get("send_ip_id", "")
-            category.syndata_tcp.send_badsum = send.get("send_badsum", False)
-        else:
-            category.syndata_tcp.send_enabled = False
+        apply_structured_block_overrides_to_category(category, args, protocol="tcp")
         return
 
     if is_udp:
@@ -200,12 +170,7 @@ def _apply_zapret2_strategy_args(preset, category_key: str, strategy_id: str) ->
         category.tcp_args = args
         category.udp_args = ""
 
-    category.syndata_tcp.enabled = False
-    category.syndata_tcp.send_enabled = False
-    category.syndata_tcp.out_range = 0
-    category.syndata_tcp.out_range_mode = "n"
-    category.syndata_udp.out_range = 0
-    category.syndata_udp.out_range_mode = "n"
+    reset_structured_advanced_state(category)
 
 
 def _selection_id_from_zapret1_category(category) -> str:
@@ -613,8 +578,12 @@ class DirectPresetFacade:
             return self.save_category_preserving_layout(preset, normalized_key) if save_and_sync else True
         raise ValueError(f"Unsupported launch method for strategy selection: {self.launch_method}")
 
-    def get_active_preset(self):
+    def get_selected_source_preset(self):
         return self._load_selected_preset_model()
+
+    def get_active_preset(self):
+        """Compatibility alias for get_selected_source_preset()."""
+        return self.get_selected_source_preset()
 
     def get_category_filter_mode(self, category_key: str) -> str:
         preset = self.get_active_preset()

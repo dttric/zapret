@@ -12,6 +12,7 @@ from .preset_storage import (
     duplicate_preset,
     export_preset,
     get_active_preset_path,
+    get_runtime_config_path,
     get_preset_path,
     get_presets_dir,
     get_user_settings_path,
@@ -30,6 +31,20 @@ from .preset_manager import PresetManager
 from .preset_store import PresetStore, get_preset_store
 
 # Txt parser (for advanced usage)
+from .block_semantics import (
+    BlockSemantics,
+    OutRangeState,
+    SendState,
+    SyndataState,
+    apply_structured_block_overrides_to_category,
+    analyze_block_semantics,
+    extract_structured_out_range,
+    extract_structured_send,
+    extract_structured_syndata,
+    has_explicit_out_range,
+    reset_structured_advanced_state,
+    should_preserve_token_raw,
+)
 from .txt_preset_parser import (
     CategoryBlock,
     PresetData,
@@ -49,7 +64,6 @@ from .preset_defaults import (
     get_default_category_settings,
     get_category_default_filter_mode,
     get_category_default_syndata,
-    parse_syndata_from_args,
     get_default_template_content,
     get_default_template_name,
     get_template_content,
@@ -372,6 +386,7 @@ __all__ = [
     "get_presets_dir",
     "get_preset_path",
     "get_active_preset_path",
+    "get_runtime_config_path",
     "get_user_settings_path",
     "list_presets",
     "preset_exists",
@@ -396,7 +411,6 @@ __all__ = [
     "get_default_category_settings",
     "get_category_default_filter_mode",
     "get_category_default_syndata",
-    "parse_syndata_from_args",
     # Template functions
     "get_default_template_content",
     "get_default_template_name",
@@ -405,6 +419,18 @@ __all__ = [
     "invalidate_templates_cache",
     "ensure_templates_copied_to_presets",
     # Parser
+    "BlockSemantics",
+    "OutRangeState",
+    "SendState",
+    "SyndataState",
+    "apply_structured_block_overrides_to_category",
+    "analyze_block_semantics",
+    "has_explicit_out_range",
+    "reset_structured_advanced_state",
+    "should_preserve_token_raw",
+    "extract_structured_out_range",
+    "extract_structured_send",
+    "extract_structured_syndata",
     "PresetData",
     "CategoryBlock",
     "parse_preset_file",
