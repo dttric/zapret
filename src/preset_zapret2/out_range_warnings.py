@@ -21,6 +21,23 @@ def _block_warning_label(block) -> str:
     return f"block/{protocol}"
 
 
+def _should_warn_for_launch(semantics) -> bool:
+    status = str(getattr(getattr(semantics, "out_range", None), "status", "") or "").strip().lower()
+    raw_value = str(getattr(getattr(semantics, "out_range", None), "raw_value", "") or "").strip()
+
+    if status == "absent":
+        return True
+
+    # Launch warning is about missing explicit narrowing, not about whether the
+    # block can be losslessly round-tripped as one structured out-range value.
+    # Mixed forms like top-level --out-range plus inline :out_range=... are
+    # valid explicit narrowing for runtime and must not trigger this warning.
+    if status == "invalid" and not raw_value:
+        return True
+
+    return False
+
+
 def collect_missing_out_range_labels_from_file(preset_path: str | Path) -> list[str]:
     data = parse_preset_file(Path(preset_path))
     labels: list[str] = []
@@ -29,7 +46,7 @@ def collect_missing_out_range_labels_from_file(preset_path: str | Path) -> list[
     for block in data.categories:
         block_text = str(getattr(block, "raw_args", "") or getattr(block, "args", "") or "")
         semantics = analyze_block_semantics(block_text)
-        if not semantics.should_warn_about_out_range:
+        if not _should_warn_for_launch(semantics):
             continue
 
         label = _block_warning_label(block)
