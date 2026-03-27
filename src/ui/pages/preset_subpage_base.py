@@ -6,6 +6,7 @@ from datetime import datetime
 from pathlib import Path
 
 from PyQt6.QtCore import Qt, QTimer, pyqtSignal
+from PyQt6.QtGui import QAction
 from PyQt6.QtWidgets import QHBoxLayout, QVBoxLayout, QWidget, QFileDialog
 
 from ui.pages.base_page import BasePage
@@ -53,6 +54,37 @@ def _fluent_icon(name: str):
     if FluentIcon is None:
         return None
     return getattr(FluentIcon, name, None)
+
+
+def _make_menu_action(text: str, *, icon=None, parent=None):
+    if Action is not None:
+        if icon is not None:
+            try:
+                return Action(icon, text, parent)
+            except TypeError:
+                pass
+        try:
+            action = Action(text, parent)
+        except TypeError:
+            try:
+                action = Action(text)
+            except TypeError:
+                action = None
+        if action is not None:
+            try:
+                if icon is not None and hasattr(action, "setIcon"):
+                    action.setIcon(icon)
+            except Exception:
+                pass
+            return action
+
+    action = QAction(text, parent)
+    try:
+        if icon is not None:
+            action.setIcon(icon)
+    except Exception:
+        pass
+    return action
 
 
 class _RenameDialog(MessageBoxBase):
@@ -163,6 +195,15 @@ class PresetSubpageBase(BasePage):
             except Exception:
                 pass
 
+    def _is_current_builtin(self) -> bool:
+        facade = self._get_direct_facade()
+        if facade is None:
+            return False
+        try:
+            return bool(facade.is_builtin_name(self._preset_name))
+        except Exception:
+            return False
+
     def _build_ui(self) -> None:
         top_row = QWidget(self)
         top_layout = QHBoxLayout(top_row)
@@ -245,7 +286,15 @@ class PresetSubpageBase(BasePage):
         self.title_label.setText(self._preset_name or self._default_title())
         active_name = self._current_selected_name()
         is_active = active_name.lower() == self._preset_name.lower() if self._preset_name else False
-        status = "Активный пресет" if is_active else "Пользовательский пресет"
+        is_builtin = self._is_current_builtin()
+        if is_active and is_builtin:
+            status = "Активный встроенный пресет"
+        elif is_active:
+            status = "Активный пресет"
+        elif is_builtin:
+            status = "Встроенный пресет"
+        else:
+            status = "Пользовательский пресет"
         self.statusLabel.setText(status)
         self.activateButton.setVisible(not is_active)
         self.metaLabel.setText(f"Имя: {self._preset_name}")
@@ -323,24 +372,32 @@ class PresetSubpageBase(BasePage):
     def _open_menu(self) -> None:
         if RoundMenu is not None and Action is not None:
             menu = RoundMenu(parent=self)
-            rename_action = Action(_fluent_icon("RENAME"), "Переименовать", menu)
-            duplicate_action = Action(_fluent_icon("COPY"), "Дублировать", menu)
-            export_action = Action(_fluent_icon("SHARE"), "Экспорт", menu)
-            reset_action = Action(_fluent_icon("SYNC"), "Сбросить", menu)
-            delete_action = Action(_fluent_icon("DELETE"), "Удалить", menu)
-            rename_action.triggered.connect(self._rename_preset)
+            duplicate_action = _make_menu_action("Дублировать", icon=_fluent_icon("COPY"), parent=menu)
+            export_action = _make_menu_action("Экспорт", icon=_fluent_icon("SHARE"), parent=menu)
+            reset_action = _make_menu_action("Сбросить", icon=_fluent_icon("SYNC"), parent=menu)
+            rename_action = None
+            delete_action = None
+            if not self._is_current_builtin():
+                rename_action = _make_menu_action("Переименовать", icon=_fluent_icon("RENAME"), parent=menu)
+                delete_action = _make_menu_action("Удалить", icon=_fluent_icon("DELETE"), parent=menu)
+                rename_action.triggered.connect(self._rename_preset)
+                delete_action.triggered.connect(self._delete_preset)
             duplicate_action.triggered.connect(self._duplicate_preset)
             export_action.triggered.connect(self._export_preset)
             reset_action.triggered.connect(self._reset_preset)
-            delete_action.triggered.connect(self._delete_preset)
-            menu.addAction(rename_action)
+            if rename_action is not None:
+                menu.addAction(rename_action)
             menu.addAction(duplicate_action)
             menu.addAction(export_action)
             menu.addAction(reset_action)
-            menu.addAction(delete_action)
+            if delete_action is not None:
+                menu.addAction(delete_action)
             menu.exec(self.menuButton.mapToGlobal(self.menuButton.rect().bottomLeft()))
 
     def _rename_preset(self) -> None:
+        if self._is_current_builtin():
+            self._show_error("Встроенный пресет нельзя переименовать. Создайте копию и работайте уже с ней.")
+            return
         self._flush_pending_save()
         facade = self._get_direct_facade()
         existing_names = facade.list_names() if facade is not None else self._get_manager_obj().list_presets()
@@ -443,6 +500,9 @@ class PresetSubpageBase(BasePage):
             self._show_error(str(e))
 
     def _delete_preset(self) -> None:
+        if self._is_current_builtin():
+            self._show_error("Встроенный пресет нельзя удалить.")
+            return
         self._flush_pending_save()
         if MessageBox is not None:
             box = MessageBox(

@@ -67,6 +67,11 @@ _PAGE_CLASS_SPECS: dict[PageName, tuple[str, str, str]] = {
         "ui.pages.zapret2.preset_detail_page",
         "Zapret2PresetDetailPage",
     ),
+    PageName.ZAPRET2_PRESET_FOLDERS: (
+        "zapret2_preset_folders_page",
+        "ui.pages.zapret2.preset_folders_page",
+        "Zapret2PresetFoldersPage",
+    ),
     PageName.ZAPRET2_ORCHESTRA: (
         "zapret2_orchestra_strategies_page",
         "ui.pages.zapret2_orchestra_strategies_page",
@@ -111,6 +116,11 @@ _PAGE_CLASS_SPECS: dict[PageName, tuple[str, str, str]] = {
         "zapret1_preset_detail_page",
         "ui.pages.zapret1.preset_detail_page",
         "Zapret1PresetDetailPage",
+    ),
+    PageName.ZAPRET1_PRESET_FOLDERS: (
+        "zapret1_preset_folders_page",
+        "ui.pages.zapret1.preset_folders_page",
+        "Zapret1PresetFoldersPage",
     ),
     PageName.HOSTLIST: ("hostlist_page", "ui.pages.hostlist_page", "HostlistPage"),
     PageName.BLOBS: ("blobs_page", "ui.pages.blobs_page", "BlobsPage"),
@@ -1031,12 +1041,24 @@ class MainWindowUI:
                 page.preset_open_requested,
                 self._open_zapret2_preset_detail,
             )
+        if page_name in (PageName.ZAPRET2_USER_PRESETS, PageName.ZAPRET2_ORCHESTRA_USER_PRESETS) and hasattr(page, "folders_open_requested"):
+            self._connect_signal_once(
+                f"{page_name.name}.folders_open_requested",
+                page.folders_open_requested,
+                self._open_zapret2_preset_folders,
+            )
 
         if page_name == PageName.ZAPRET1_USER_PRESETS and hasattr(page, "preset_open_requested"):
             self._connect_signal_once(
                 "z1_user_presets.preset_open_requested",
                 page.preset_open_requested,
                 self._open_zapret1_preset_detail,
+            )
+        if page_name == PageName.ZAPRET1_USER_PRESETS and hasattr(page, "folders_open_requested"):
+            self._connect_signal_once(
+                "z1_user_presets.folders_open_requested",
+                page.folders_open_requested,
+                self._open_zapret1_preset_folders,
             )
 
         if page_name == PageName.ZAPRET2_PRESET_DETAIL and hasattr(page, "back_clicked"):
@@ -1051,6 +1073,30 @@ class MainWindowUI:
                 "z1_preset_detail.back_clicked",
                 page.back_clicked,
                 lambda: self.show_page(PageName.ZAPRET1_USER_PRESETS),
+            )
+        if page_name == PageName.ZAPRET2_PRESET_FOLDERS and hasattr(page, "back_clicked"):
+            self._connect_signal_once(
+                "z2_preset_folders.back_clicked",
+                page.back_clicked,
+                self._show_active_zapret2_user_presets_page,
+            )
+        if page_name == PageName.ZAPRET1_PRESET_FOLDERS and hasattr(page, "back_clicked"):
+            self._connect_signal_once(
+                "z1_preset_folders.back_clicked",
+                page.back_clicked,
+                self._show_zapret1_user_presets_page,
+            )
+        if page_name == PageName.ZAPRET2_PRESET_FOLDERS and hasattr(page, "folders_changed"):
+            self._connect_signal_once(
+                "z2_preset_folders.folders_changed",
+                page.folders_changed,
+                self._refresh_active_zapret2_user_presets_page,
+            )
+        if page_name == PageName.ZAPRET1_PRESET_FOLDERS and hasattr(page, "folders_changed"):
+            self._connect_signal_once(
+                "z1_preset_folders.folders_changed",
+                page.folders_changed,
+                self._refresh_zapret1_user_presets_page,
             )
 
         if page_name in (PageName.ZAPRET2_DIRECT_CONTROL, PageName.ZAPRET2_ORCHESTRA_CONTROL):
@@ -1386,9 +1432,39 @@ class MainWindowUI:
             method = ""
 
         if method == "direct_zapret2_orchestra":
+            self._refresh_page_if_possible(PageName.ZAPRET2_ORCHESTRA_USER_PRESETS)
             self.show_page(PageName.ZAPRET2_ORCHESTRA_USER_PRESETS)
         else:
+            self._refresh_page_if_possible(PageName.ZAPRET2_USER_PRESETS)
             self.show_page(PageName.ZAPRET2_USER_PRESETS)
+
+    def _show_zapret1_user_presets_page(self) -> None:
+        self._refresh_page_if_possible(PageName.ZAPRET1_USER_PRESETS)
+        self.show_page(PageName.ZAPRET1_USER_PRESETS)
+
+    def _refresh_page_if_possible(self, page_name: PageName) -> None:
+        page = self._ensure_page(page_name)
+        if page is None:
+            return
+        loader = getattr(page, "_load_presets", None)
+        if callable(loader):
+            try:
+                loader()
+            except Exception:
+                pass
+
+    def _refresh_active_zapret2_user_presets_page(self) -> None:
+        try:
+            from strategy_menu import get_strategy_launch_method
+
+            method = (get_strategy_launch_method() or "").strip().lower()
+        except Exception:
+            method = ""
+        target = PageName.ZAPRET2_ORCHESTRA_USER_PRESETS if method == "direct_zapret2_orchestra" else PageName.ZAPRET2_USER_PRESETS
+        self._refresh_page_if_possible(target)
+
+    def _refresh_zapret1_user_presets_page(self) -> None:
+        self._refresh_page_if_possible(PageName.ZAPRET1_USER_PRESETS)
 
     def _open_zapret2_preset_detail(self, preset_name: str) -> None:
         page = self._ensure_page(PageName.ZAPRET2_PRESET_DETAIL)
@@ -1405,6 +1481,14 @@ class MainWindowUI:
         if hasattr(page, "set_preset_name"):
             page.set_preset_name(preset_name)
         self.show_page(PageName.ZAPRET1_PRESET_DETAIL)
+
+    def _open_zapret2_preset_folders(self) -> None:
+        self._ensure_page(PageName.ZAPRET2_PRESET_FOLDERS)
+        self.show_page(PageName.ZAPRET2_PRESET_FOLDERS)
+
+    def _open_zapret1_preset_folders(self) -> None:
+        self._ensure_page(PageName.ZAPRET1_PRESET_FOLDERS)
+        self.show_page(PageName.ZAPRET1_PRESET_FOLDERS)
 
 
     # ------------------------------------------------------------------

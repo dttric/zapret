@@ -70,6 +70,37 @@ _FILTER_SELECTOR_PREFIXES = (
     "--ipset-ip=",
 )
 
+_COMPOUND_CATEGORY_SIGNATURES = (
+    {
+        "category": "ipset_udp",
+        "protocol": "udp",
+        "mode": "ipset",
+        "selectors": frozenset(
+            {
+                "ipset-all.txt",
+                "ipset-base.txt",
+                "cloudflare-ipset.txt",
+                "cloudflare-ipset_v6.txt",
+                "ipset-cloudflare1.txt",
+                "ipset-cloudflare.txt",
+            }
+        ),
+    },
+    {
+        "category": "ipset_tcp_cloudflare",
+        "protocol": "tcp",
+        "mode": "ipset",
+        "selectors": frozenset(
+            {
+                "cloudflare-ipset.txt",
+                "cloudflare-ipset_v6.txt",
+                "ipset-cloudflare1.txt",
+                "ipset-cloudflare.txt",
+            }
+        ),
+    },
+)
+
 
 def _normalize_category_key(value: str) -> str:
     return str(value or "").strip().lower()
@@ -185,6 +216,8 @@ class PresetData:
     base_args: str = ""
     categories: List[CategoryBlock] = field(default_factory=list)
     raw_header: str = ""
+    raw_blocks: List[str] = field(default_factory=list)
+    raw_category_signature: List[Tuple[str, str, str, str, str, str]] = field(default_factory=list)
 
     def get_category_block(self, category: str, protocol: str = "tcp") -> Optional[CategoryBlock]:
         """
@@ -250,6 +283,39 @@ class PresetData:
 
         # Filter out None entries (replaced blocks)
         self.categories = [b for b in unique_blocks if b is not None]
+
+
+def _build_category_signature(blocks: List[CategoryBlock]) -> List[Tuple[str, str, str, str, str, str]]:
+    """
+    Builds a lossless-enough snapshot of parsed categories.
+
+    If caller later mutates categories or block args, generator falls back to
+    synthesized block ordering instead of replaying preserved raw blocks.
+    """
+    return [
+        (
+            str(block.category or ""),
+            str(block.protocol or ""),
+            str(block.filter_mode or ""),
+            str(block.filter_file or ""),
+            str(block.port or ""),
+            str(block.args or ""),
+        )
+        for block in (blocks or [])
+    ]
+
+
+def _can_replay_raw_blocks_losslessly(data: PresetData) -> bool:
+    raw_blocks = list(getattr(data, "raw_blocks", []) or [])
+    if not raw_blocks:
+        return False
+
+    expected_signature = list(getattr(data, "raw_category_signature", []) or [])
+    if not expected_signature:
+        return False
+
+    current_signature = _build_category_signature(list(getattr(data, "categories", []) or []))
+    return current_signature == expected_signature
 
 
 def extract_category_from_args(args: str) -> Tuple[str, str, str]:
@@ -365,6 +431,28 @@ def extract_categories_from_args(args: str) -> List[Tuple[str, str, str]]:
                 out.append(item)
 
     return out
+
+
+def _infer_compound_category_from_selectors(
+    categories_from_lists: List[Tuple[str, str, str]],
+    *,
+    protocol: str,
+) -> Optional[Tuple[str, str]]:
+    selector_names = {
+        PureWindowsPath(str(filter_file or "").strip()).name.lower()
+        for _cat, _mode, filter_file in (categories_from_lists or [])
+        if str(filter_file or "").strip()
+    }
+    if not selector_names:
+        return None
+
+    normalized_protocol = str(protocol or "").strip().lower()
+    for item in _COMPOUND_CATEGORY_SIGNATURES:
+        if item["protocol"] != normalized_protocol:
+            continue
+        if selector_names == item["selectors"]:
+            return (str(item["category"]), str(item["mode"]))
+    return None
 
 
 def _extract_selector_context_tokens(args: str, *, filter_mode: str) -> List[str]:
@@ -1236,6 +1324,9 @@ def parse_preset_content(content: str) -> PresetData:
     if current_block:
         blocks_raw.append(current_block)
 
+    # Preserve raw block sequence for lossless parse -> generate -> parse.
+    data.raw_blocks = ['\n'.join(block) for block in blocks_raw]
+
     # Parse each block
     for block_lines_list in blocks_raw:
         block_args = '\n'.join(block_lines_list)
@@ -1261,15 +1352,22 @@ def parse_preset_content(content: str) -> PresetData:
             # resolution would split them into individual unknown entries.
             # Detect and use full-block inference instead.
             use_inferred_compound = False
+            hardcoded_compound = _infer_compound_category_from_selectors(
+                categories_from_lists,
+                protocol=base_protocol,
+            )
+            if hardcoded_compound is not None:
+                inferred_category, inferred_mode = hardcoded_compound
+                use_inferred_compound = True
             if inferred_category != "unknown":
                 _ci = (_load_category_info() or {}).get(inferred_category, {})
                 _bf = _ci.get("base_filter") or _ci.get("base_filter_ipset") or _ci.get("base_filter_hostlist") or ""
                 _selector_count = len(re.findall(r'--(ipset|hostlist)=', _bf))
-                if _selector_count > 1:
+                if _selector_count > 1 or hardcoded_compound is not None:
                     use_inferred_compound = True
 
             if use_inferred_compound:
-                fm = "ipset" if re.search(r'--ipset=', block_args) else "hostlist"
+                fm = inferred_mode or ("ipset" if re.search(r'--ipset=', block_args) else "hostlist")
                 category_entries = [(inferred_category, fm, "")]
             else:
                 for list_category, list_mode, list_file in categories_from_lists:
@@ -1374,6 +1472,7 @@ def parse_preset_content(content: str) -> PresetData:
 
     # Deduplicate in case file already contains duplicates
     data.deduplicate_categories()
+    data.raw_category_signature = _build_category_signature(data.categories)
 
     return data
 
@@ -1412,6 +1511,21 @@ def generate_preset_content(data: PresetData, include_header: bool = True) -> st
             if line.strip():
                 lines.append(_normalize_known_path_line(line.strip()))
         lines.append("")
+
+    # Lossless replay path for parsed data that was not modified afterwards.
+    # This preserves shared raw blocks and duplicate category/protocol blocks
+    # that the structured category list cannot represent one-by-one.
+    if _can_replay_raw_blocks_losslessly(data):
+        raw_blocks = [str(block or "").strip() for block in (data.raw_blocks or []) if str(block or "").strip()]
+        for i, block in enumerate(raw_blocks):
+            for line in block.split('\n'):
+                if line.strip():
+                    lines.append(_normalize_known_path_line(line.strip()))
+            if i < len(raw_blocks) - 1:
+                lines.append("")
+                lines.append("--new")
+                lines.append("")
+        return '\n'.join(lines)
 
     # Category blocks (stable ordering by categories.txt)
     blocks = _drop_placeholder_unknown_categories(list(data.categories))

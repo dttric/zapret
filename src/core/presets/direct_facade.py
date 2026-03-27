@@ -391,6 +391,8 @@ class DirectPresetFacade:
         document = self.get_document(old_name)
         if document is None:
             raise ValueError(f"Preset not found: {old_name}")
+        if self.is_builtin_name(old_name):
+            raise ValueError(f"Built-in preset cannot be renamed: {old_name}")
         was_selected = self.is_selected(old_name)
 
         renamed = get_preset_repository().rename_preset(self.engine, document.manifest.id, new_name)

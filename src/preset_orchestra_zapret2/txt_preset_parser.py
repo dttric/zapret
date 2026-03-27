@@ -174,6 +174,8 @@ class PresetData:
     base_args: str = ""
     categories: List[CategoryBlock] = field(default_factory=list)
     raw_header: str = ""
+    raw_blocks: List[str] = field(default_factory=list)
+    raw_category_signature: List[Tuple[str, str, str, str, str, str]] = field(default_factory=list)
 
     def get_category_block(self, category: str, protocol: str = "tcp") -> Optional[CategoryBlock]:
         """
@@ -228,6 +230,39 @@ class PresetData:
 
         # Filter out None entries (replaced blocks)
         self.categories = [b for b in unique_blocks if b is not None]
+
+
+def _build_category_signature(blocks: List[CategoryBlock]) -> List[Tuple[str, str, str, str, str, str]]:
+    """
+    Builds a lossless-enough snapshot of parsed categories.
+
+    If caller later mutates categories or block args, generator falls back to
+    synthesized block ordering instead of replaying preserved raw blocks.
+    """
+    return [
+        (
+            str(block.category or ""),
+            str(block.protocol or ""),
+            str(block.filter_mode or ""),
+            str(block.filter_file or ""),
+            str(block.port or ""),
+            str(block.args or ""),
+        )
+        for block in (blocks or [])
+    ]
+
+
+def _can_replay_raw_blocks_losslessly(data: PresetData) -> bool:
+    raw_blocks = list(getattr(data, "raw_blocks", []) or [])
+    if not raw_blocks:
+        return False
+
+    expected_signature = list(getattr(data, "raw_category_signature", []) or [])
+    if not expected_signature:
+        return False
+
+    current_signature = _build_category_signature(list(getattr(data, "categories", []) or []))
+    return current_signature == expected_signature
 
 
 def extract_category_from_args(args: str) -> Tuple[str, str, str]:
@@ -1152,6 +1187,9 @@ def parse_preset_content(content: str) -> PresetData:
     if current_block:
         blocks_raw.append(current_block)
 
+    # Preserve raw block sequence for lossless parse -> generate -> parse.
+    data.raw_blocks = ['\n'.join(block) for block in blocks_raw]
+
     # Parse each block
     for block_lines_list in blocks_raw:
         block_args = '\n'.join(block_lines_list)
@@ -1277,6 +1315,7 @@ def parse_preset_content(content: str) -> PresetData:
 
     # Deduplicate in case file already contains duplicates
     data.deduplicate_categories()
+    data.raw_category_signature = _build_category_signature(data.categories)
 
     return data
 
@@ -1315,6 +1354,21 @@ def generate_preset_content(data: PresetData, include_header: bool = True) -> st
             if line.strip():
                 lines.append(_normalize_known_path_line(line.strip()))
         lines.append("")
+
+    # Lossless replay path for parsed data that was not modified afterwards.
+    # This preserves shared raw blocks and duplicate category/protocol blocks
+    # that the structured category list cannot represent one-by-one.
+    if _can_replay_raw_blocks_losslessly(data):
+        raw_blocks = [str(block or "").strip() for block in (data.raw_blocks or []) if str(block or "").strip()]
+        for i, block in enumerate(raw_blocks):
+            for line in block.split('\n'):
+                if line.strip():
+                    lines.append(_normalize_known_path_line(line.strip()))
+            if i < len(raw_blocks) - 1:
+                lines.append("")
+                lines.append("--new")
+                lines.append("")
+        return '\n'.join(lines)
 
     # Category blocks (stable ordering by categories.txt)
     blocks = _drop_placeholder_unknown_categories(list(data.categories))
