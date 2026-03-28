@@ -8,18 +8,10 @@ from .preset_model import CategoryConfig, Preset, SyndataSettings, validate_pres
 
 # Storage functions (low-level)
 from .preset_storage import (
-    delete_preset,
-    duplicate_preset,
-    export_preset,
     get_active_preset_path,
-    get_preset_path,
     get_presets_dir,
     get_user_settings_path,
     import_preset,
-    list_presets,
-    load_preset,
-    preset_exists,
-    rename_preset,
     save_preset,
 )
 
@@ -325,7 +317,7 @@ def restore_builtin_preset(preset_name: str) -> bool:
             return False
 
         # Overwrite the presets/ file with template content
-        preset_path = get_preset_path(canonical)
+        preset_path = get_presets_dir() / f"{canonical}.txt"
         preset_path.parent.mkdir(parents=True, exist_ok=True)
         _atomic_write_text(preset_path, content, encoding="utf-8")
         log(f"Restored preset '{canonical}' from template to {preset_path}", "INFO")
@@ -385,17 +377,12 @@ __all__ = [
     "validate_preset",
     # Storage functions
     "get_presets_dir",
-    "get_preset_path",
+    "get_preset_path_by_file_name",
     "get_active_preset_path",
     "get_user_settings_path",
-    "list_presets",
-    "preset_exists",
-    "load_preset",
+    "preset_file_exists",
+    "load_preset_by_file_name",
     "save_preset",
-    "delete_preset",
-    "rename_preset",
-    "duplicate_preset",
-    "export_preset",
     "import_preset",
     # Manager
     "PresetManager",

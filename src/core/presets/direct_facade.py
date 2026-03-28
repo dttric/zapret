@@ -461,12 +461,11 @@ class DirectPresetFacade:
         if selected_document is None:
             return None
         selected_file_name = str(selected_document.manifest.file_name or "").strip()
-        selected_stem = Path(selected_file_name).stem
-        if not selected_stem:
+        if not selected_file_name:
             return None
 
         if self.launch_method == "direct_zapret2":
-            from preset_zapret2 import load_preset
+            from preset_zapret2.preset_storage import _load_preset_from_path
             try:
                 from strategy_menu import get_direct_zapret2_ui_mode
 
@@ -474,7 +473,8 @@ class DirectPresetFacade:
             except Exception:
                 ui_mode = "basic"
 
-            preset = load_preset(selected_stem)
+            preset_path = get_app_paths().engine_paths("winws2").ensure_directories().presets_dir / selected_file_name
+            preset = _load_preset_from_path(preset_path, Path(selected_file_name).stem)
             if preset is None:
                 return None
             try:
@@ -483,9 +483,10 @@ class DirectPresetFacade:
                 pass
             return project_preset_for_direct_ui_mode(preset, ui_mode)
 
-        from preset_zapret1 import load_preset_v1
+        from preset_zapret1.preset_storage import _load_preset_from_path_v1
 
-        preset = load_preset_v1(selected_stem)
+        preset_path = get_app_paths().engine_paths("winws1").ensure_directories().presets_dir / selected_file_name
+        preset = _load_preset_from_path_v1(preset_path, Path(selected_file_name).stem)
         if preset is None:
             return None
         try:
@@ -689,14 +690,14 @@ class DirectPresetFacade:
         if selected_document is None:
             return None
         selected_file_name = str(selected_document.manifest.file_name or "").strip()
-        selected_stem = Path(selected_file_name).stem
-        if not selected_stem:
+        if not selected_file_name:
             return None
 
         if self.launch_method == "direct_zapret2":
-            from preset_zapret2 import load_preset
+            from preset_zapret2.preset_storage import _load_preset_from_path
 
-            preset = load_preset(selected_stem)
+            preset_path = get_app_paths().engine_paths("winws2").ensure_directories().presets_dir / selected_file_name
+            preset = _load_preset_from_path(preset_path, Path(selected_file_name).stem)
             if preset is None:
                 return None
             try:
@@ -705,9 +706,10 @@ class DirectPresetFacade:
                 pass
             return preset
 
-        from preset_zapret1 import load_preset_v1
+        from preset_zapret1.preset_storage import _load_preset_from_path_v1
 
-        preset = load_preset_v1(selected_stem)
+        preset_path = get_app_paths().engine_paths("winws1").ensure_directories().presets_dir / selected_file_name
+        preset = _load_preset_from_path_v1(preset_path, Path(selected_file_name).stem)
         if preset is None:
             return None
         try:

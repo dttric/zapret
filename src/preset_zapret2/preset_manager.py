@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Callable, List, Optional
 
 from log import log
+from core.services import get_app_paths
 
 from .preset_model import (
     CategoryConfig,
@@ -18,9 +19,7 @@ from .preset_model import (
     validate_preset,
 )
 from .mode_projection import normalize_direct_zapret2_ui_mode, project_preset_for_direct_ui_mode
-from .preset_storage import (
-    save_preset,
-)
+from .preset_storage import save_preset
 
 
 class PresetManager:
@@ -838,6 +837,14 @@ class PresetManager:
 
             # Persist reset into the preset file.
             if preset.name and preset.name != "Current":
+                source_file_name = str(getattr(existing, "_source_file_name", "") or "").strip()
+                if not source_file_name:
+                    source_file_name = str(self.get_selected_source_preset_file_name() or "").strip()
+                if source_file_name:
+                    try:
+                        setattr(preset, "_source_file_name", source_file_name)
+                    except Exception:
+                        pass
                 save_preset(preset)
                 self.invalidate_preset_cache(preset.name)
 
@@ -967,9 +974,11 @@ class PresetManager:
             return "\n".join(out_header + body).rstrip("\n") + "\n"
 
         try:
-            if not preset_exists(name):
+            document = self._get_facade().get_document(name)
+            if document is None:
                 log(f"Cannot reset: preset '{name}' not found", "ERROR")
                 return False
+            target_file_name = document.manifest.file_name
 
             if invalidate_templates:
                 try:
@@ -996,7 +1005,7 @@ class PresetManager:
             rendered_content = _render_template_for_preset(template_content, name)
 
             # Persist exact template reset into the preset file (force, regardless of version).
-            preset_path = get_preset_path(name)
+            preset_path = get_app_paths().engine_paths("winws2").ensure_directories().presets_dir / target_file_name
             try:
                 preset_path.parent.mkdir(parents=True, exist_ok=True)
                 preset_path.write_text(rendered_content, encoding="utf-8")
@@ -1079,6 +1088,16 @@ class PresetManager:
 
         # Save to presets folder if it has a name.
         if preset.name and preset.name != "Current":
+            if not str(getattr(preset, "_source_file_name", "") or "").strip():
+                try:
+                    current_file_name = str(self.get_selected_source_preset_file_name() or "").strip()
+                except Exception:
+                    current_file_name = ""
+                if current_file_name:
+                    try:
+                        setattr(preset, "_source_file_name", current_file_name)
+                    except Exception:
+                        pass
             save_preset(preset)
             self.invalidate_preset_cache(preset.name)
 

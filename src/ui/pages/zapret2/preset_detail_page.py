@@ -41,8 +41,9 @@ class Zapret2PresetDetailPage(PresetSubpageBase):
         except Exception:
             pass
 
-        from preset_zapret2 import get_preset_path
-        return get_preset_path(name)
+        from core.services import get_app_paths
+
+        return get_app_paths().engine_paths("winws2").ensure_directories().presets_dir / str(name or "").strip()
 
     def _direct_launch_method(self) -> str | None:
         try:

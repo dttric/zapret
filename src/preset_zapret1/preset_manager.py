@@ -8,6 +8,7 @@ from pathlib import Path, PureWindowsPath
 from typing import Callable, List, Optional
 
 from log import log
+from core.services import get_app_paths
 
 from .preset_model import (
     CategoryConfigV1,
@@ -16,9 +17,7 @@ from .preset_model import (
     normalize_preset_icon_color_v1,
     validate_preset_v1,
 )
-from .preset_storage import (
-    save_preset_v1,
-)
+from .preset_storage import save_preset_v1
 
 
 class PresetManagerV1:
@@ -47,7 +46,7 @@ class PresetManagerV1:
             self._sync_layer = Zapret1PresetSyncLayer(
                 on_dpi_reload_needed=self.on_dpi_reload_needed,
                 invalidate_cache=self._invalidate_active_preset_cache,
-                get_selected_name=lambda: str(getattr(self.get_active_preset(), "name", "") or ""),
+                get_selected_file_name=lambda: str(self.get_active_preset_file_name() or ""),
             )
         return self._sync_layer
 
@@ -314,9 +313,11 @@ class PresetManagerV1:
             return False
 
         try:
-            if not preset_exists_v1(name):
+            document = self._get_facade().get_document(name)
+            if document is None:
                 log(f"Cannot reset V1: preset '{name}' not found", "ERROR")
                 return False
+            target_file_name = document.manifest.file_name
 
             if invalidate_templates:
                 try:
@@ -343,7 +344,7 @@ class PresetManagerV1:
 
             rendered_content = self._render_template_for_preset(template_content, name)
 
-            preset_path = get_preset_path_v1(name)
+            preset_path = get_app_paths().engine_paths("winws1").ensure_directories().presets_dir / target_file_name
             try:
                 preset_path.parent.mkdir(parents=True, exist_ok=True)
                 preset_path.write_text(rendered_content, encoding="utf-8")
@@ -597,6 +598,16 @@ class PresetManagerV1:
 
     def _save_and_sync_preset(self, preset: PresetV1) -> bool:
         if preset.name and preset.name != "Current":
+            if not str(getattr(preset, "_source_file_name", "") or "").strip():
+                try:
+                    current_file_name = str(self.get_active_preset_file_name() or "").strip()
+                except Exception:
+                    current_file_name = ""
+                if current_file_name:
+                    try:
+                        setattr(preset, "_source_file_name", current_file_name)
+                    except Exception:
+                        pass
             save_preset_v1(preset)
             self.invalidate_preset_cache(preset.name)
         return self.sync_preset_to_active_file(preset)

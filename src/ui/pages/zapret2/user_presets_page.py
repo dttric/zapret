@@ -1659,13 +1659,6 @@ class Zapret2UserPresetsPage(BasePage):
     def _get_preset_store(self):
         return self._import_preset_attr("preset_store", "get_preset_store")()
 
-    def _list_preset_names_light(self) -> list[str]:
-        try:
-            list_presets = self._import_preset_attr("", "list_presets")
-            return list(list_presets() or [])
-        except Exception:
-            return []
-
     def _list_preset_entries_light(self) -> list[dict[str, str]]:
         try:
             facade = self._get_direct_facade()
@@ -1680,7 +1673,7 @@ class Zapret2UserPresetsPage(BasePage):
         except Exception:
             pass
 
-        return [{"file_name": name, "display_name": name} for name in self._list_preset_names_light()]
+        return []
 
     def _get_active_preset_name_light(self) -> str:
         try:
@@ -1709,27 +1702,19 @@ class Zapret2UserPresetsPage(BasePage):
     def _load_preset_list_metadata_light(self) -> dict[str, dict[str, str]]:
         metadata: dict[str, dict[str, str]] = {}
 
-        try:
-            get_preset_path = self._import_preset_attr("", "get_preset_path")
-        except Exception:
-            get_preset_path = None
-
         for entry in self._list_preset_entries_light():
             file_name = str(entry.get("file_name") or "").strip()
             display_name = str(entry.get("display_name") or file_name).strip()
             if not file_name:
                 continue
             try:
-                if get_preset_path is not None and not file_name.lower().endswith(".txt"):
-                    path = Path(get_preset_path(file_name))
+                facade = self._get_direct_facade()
+                if facade is not None and file_name.lower().endswith(".txt"):
+                    path = facade.get_source_path_by_file_name(file_name)
                 else:
-                    facade = self._get_direct_facade()
-                    if facade is not None and file_name.lower().endswith(".txt"):
-                        path = facade.get_source_path_by_file_name(file_name)
-                    elif get_preset_path is not None:
-                        path = Path(get_preset_path(display_name))
-                    else:
-                        path = Path(file_name)
+                    from core.services import get_app_paths
+
+                    path = get_app_paths().engine_paths("winws2").ensure_directories().presets_dir / file_name
                 metadata[file_name] = {
                     **_read_preset_list_metadata(path),
                     "display_name": display_name,

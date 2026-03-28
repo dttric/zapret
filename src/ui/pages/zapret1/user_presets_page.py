@@ -1612,14 +1612,6 @@ class Zapret1UserPresetsPage(BasePage):
         if self.isVisible():
             self._load_presets()
 
-    def _list_preset_names_light(self) -> list[str]:
-        try:
-            from preset_zapret1.preset_storage import list_presets_v1
-
-            return list(list_presets_v1() or [])
-        except Exception:
-            return []
-
     def _list_preset_entries_light(self) -> list[dict[str, str]]:
         try:
             facade = self._get_direct_facade()
@@ -1633,7 +1625,7 @@ class Zapret1UserPresetsPage(BasePage):
         except Exception:
             pass
 
-        return [{"file_name": name, "display_name": name} for name in self._list_preset_names_light()]
+        return []
 
     def _get_active_preset_name_light(self) -> str:
         try:
@@ -1653,11 +1645,6 @@ class Zapret1UserPresetsPage(BasePage):
 
     def _load_preset_list_metadata_light(self) -> dict[str, dict[str, str]]:
         metadata: dict[str, dict[str, str]] = {}
-        try:
-            from preset_zapret1.preset_storage import get_preset_path_v1
-        except Exception:
-            get_preset_path_v1 = None
-
         for entry in self._list_preset_entries_light():
             file_name = str(entry.get("file_name") or "").strip()
             display_name = str(entry.get("display_name") or file_name).strip()
@@ -1667,10 +1654,10 @@ class Zapret1UserPresetsPage(BasePage):
                 facade = self._get_direct_facade()
                 if facade is not None and file_name.lower().endswith(".txt"):
                     path = facade.get_source_path_by_file_name(file_name)
-                elif get_preset_path_v1 is not None:
-                    path = Path(get_preset_path_v1(display_name))
                 else:
-                    path = Path(file_name)
+                    from core.services import get_app_paths
+
+                    path = get_app_paths().engine_paths("winws1").ensure_directories().presets_dir / file_name
                 metadata[file_name] = {
                     **_read_preset_list_metadata(path),
                     "display_name": display_name,

@@ -16,9 +16,9 @@ class Zapret1PresetDetailPage(PresetSubpageBase):
         return DirectPresetFacade.from_launch_method("direct_zapret1")
 
     def _get_preset_path(self, name: str) -> Path:
-        from preset_zapret1 import get_preset_path_v1
+        from core.services import get_app_paths
 
-        return get_preset_path_v1(name)
+        return get_app_paths().engine_paths("winws1").ensure_directories().presets_dir / str(name or "").strip()
 
     def _direct_launch_method(self) -> str | None:
         return "direct_zapret1"

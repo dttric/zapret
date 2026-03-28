@@ -17,7 +17,6 @@ import shutil
 from datetime import datetime
 from pathlib import Path
 from typing import List, Optional, Tuple, TYPE_CHECKING
-import warnings
 
 from log import log
 from .preset_model import DEFAULT_PRESET_ICON_COLOR, normalize_preset_icon_color
@@ -95,41 +94,6 @@ def get_presets_dir() -> Path:
     return presets_dir
 
 
-def get_preset_path(name: str) -> Path:
-    """
-    Legacy compatibility wrapper: resolves a preset by display/stem name.
-
-    Returns path to a specific preset file.
-
-    Args:
-        name: Preset name (without .txt extension)
-
-    Returns:
-        Path to presets/{name}.txt
-    """
-    # Sanitize name (remove dangerous characters)
-    safe_name = _sanitize_filename(name)
-    return get_presets_dir() / f"{safe_name}.txt"
-
-
-def get_preset_path_by_file_name(file_name: str) -> Path:
-    """
-    Preferred file-based path helper.
-
-    Args:
-        file_name: Actual preset file name, usually ending with `.txt`
-
-    Returns:
-        Path to presets/<file_name>
-    """
-    candidate = Path(str(file_name or "").strip()).name
-    if not candidate:
-        candidate = "Preset.txt"
-    if not candidate.lower().endswith(".txt"):
-        candidate = f"{candidate}.txt"
-    return get_presets_dir() / candidate
-
-
 def get_active_preset_path() -> Path:
     """
     Returns the currently selected source preset path for direct_zapret2.
@@ -184,65 +148,7 @@ def _sanitize_filename(name: str) -> str:
     return safe_name[:100]
 
 
-# ============================================================================
-# LIST OPERATIONS
-# ============================================================================
-
-def list_presets() -> List[str]:
-    """
-    Lists all available preset names.
-
-    Returns:
-        List of preset names (without .txt extension), sorted alphabetically.
-    """
-    presets_dir = get_presets_dir()
-
-    presets: set[str] = set()
-
-    if presets_dir.exists():
-        for f in presets_dir.glob("*.txt"):
-            if f.is_file():
-                presets.add(f.stem)
-
-    return sorted(presets, key=lambda s: s.lower())
-
-
-def preset_exists(name: str) -> bool:
-    """
-    Legacy compatibility wrapper: checks existence by display/stem name.
-
-    Checks if preset with given name exists.
-
-    Args:
-        name: Preset name
-
-    Returns:
-        True if preset file exists
-    """
-    return get_preset_path(name).exists()
-
-
-def preset_file_exists(file_name: str) -> bool:
-    """Preferred file-based existence check."""
-    return get_preset_path_by_file_name(file_name).exists()
-
-
-# ============================================================================
-# LOAD/SAVE OPERATIONS
-# ============================================================================
-
-def load_preset(name: str) -> Optional[Preset]:
-    """
-    Legacy compatibility wrapper: loads a preset by display/stem name.
-
-    Loads preset from file.
-
-    Args:
-        name: Preset name
-
-    Returns:
-        Preset object or None if not found
-    """
+def _load_preset_from_path(preset_path: Path, fallback_name: str) -> Optional[Preset]:
     from .block_semantics import (
         SEMANTIC_STATUS_STRUCTURED_SUPPORTED,
         analyze_block_semantics,
@@ -257,8 +163,6 @@ def load_preset(name: str) -> Optional[Preset]:
         parse_preset_file,
     )
 
-    preset_path = get_preset_path(name)
-
     if not preset_path.exists():
         log(f"Preset not found: {preset_path}", "WARNING")
         return None
@@ -268,7 +172,7 @@ def load_preset(name: str) -> Optional[Preset]:
     try:
         # Convert to Preset model
         preset = Preset(
-            name=data.name if data.name != "Unnamed" else name,
+            name=data.name if data.name != "Unnamed" else fallback_name,
             base_args=data.base_args,
         )
 
@@ -415,22 +319,12 @@ def load_preset(name: str) -> Optional[Preset]:
                 if inferred_id != "none":
                     cat.strategy_id = inferred_id
 
-        log(f"Loaded preset '{name}': {len(preset.categories)} categories", "DEBUG")
+        log(f"Loaded preset '{fallback_name}': {len(preset.categories)} categories", "DEBUG")
         return preset
 
     except Exception as e:
-        log(f"Error loading preset '{name}': {e}", "ERROR")
+        log(f"Error loading preset '{fallback_name}': {e}", "ERROR")
         return None
-
-
-def load_preset_by_file_name(file_name: str) -> Optional[Preset]:
-    """Preferred file-based load helper."""
-    candidate = Path(str(file_name or "").strip()).name
-    if not candidate:
-        return None
-    return load_preset(Path(candidate).stem)
-
-
 def _parse_metadata_from_header(header: str) -> Tuple[str, str, str, str]:
     """
     Parses created/modified/description/icon_color metadata from header comments.
@@ -510,7 +404,14 @@ def save_preset(preset: Preset) -> bool:
     """
     from .txt_preset_parser import PresetData, CategoryBlock, generate_preset_file
 
-    preset_path = get_preset_path(preset.name)
+    source_file_name = str(getattr(preset, "_source_file_name", "") or "").strip()
+    candidate = Path(source_file_name).name if source_file_name else ""
+    if not candidate:
+        safe_name = _sanitize_filename(str(getattr(preset, "name", "") or "Preset"))
+        candidate = f"{safe_name}.txt"
+    if not candidate.lower().endswith(".txt"):
+        candidate = f"{candidate}.txt"
+    preset_path = get_presets_dir() / candidate
 
     try:
         # Convert Preset to PresetData
@@ -622,105 +523,6 @@ def save_preset(preset: Preset) -> bool:
 # ============================================================================
 # DELETE/RENAME OPERATIONS
 # ============================================================================
-
-def delete_preset(name: str) -> bool:
-    """
-    Deletes preset file.
-
-    Args:
-        name: Preset name
-
-    Returns:
-        True if deleted successfully
-    """
-    preset_path = get_preset_path(name)
-
-    if not preset_path.exists():
-        log(f"Cannot delete: preset '{name}' not found", "WARNING")
-        return False
-
-    try:
-        preset_path.unlink()
-        log(f"Deleted preset '{name}'", "DEBUG")
-        return True
-    except Exception as e:
-        log(f"Error deleting preset '{name}': {e}", "ERROR")
-        return False
-
-
-def rename_preset(old_name: str, new_name: str) -> bool:
-    """
-    Renames preset file.
-
-    Args:
-        old_name: Current preset name
-        new_name: New preset name
-
-    Returns:
-        True if renamed successfully
-    """
-    old_path = get_preset_path(old_name)
-    new_path = get_preset_path(new_name)
-
-    if not old_path.exists():
-        log(f"Cannot rename: preset '{old_name}' not found", "WARNING")
-        return False
-
-    if new_path.exists():
-        log(f"Cannot rename: preset '{new_name}' already exists", "WARNING")
-        return False
-
-    try:
-        preset = load_preset(old_name)
-        if preset is None:
-            return False
-
-        preset.name = new_name
-        preset.touch()
-
-        if save_preset(preset):
-            # Delete old file
-            old_path.unlink()
-            log(f"Renamed preset '{old_name}' to '{new_name}'", "DEBUG")
-            return True
-        else:
-            return False
-
-    except Exception as e:
-        log(f"Error renaming preset: {e}", "ERROR")
-        return False
-
-
-# ============================================================================
-# IMPORT/EXPORT OPERATIONS
-# ============================================================================
-
-def export_preset(name: str, dest_path: Path) -> bool:
-    """
-    Exports preset to external file.
-
-    Args:
-        name: Preset name
-        dest_path: Destination path
-
-    Returns:
-        True if exported successfully
-    """
-    preset_path = get_preset_path(name)
-
-    if not preset_path.exists():
-        log(f"Cannot export: preset '{name}' not found", "WARNING")
-        return False
-
-    try:
-        shutil.copy2(preset_path, dest_path)
-        log(f"Exported preset '{name}' to {dest_path}", "DEBUG")
-        return True
-    except Exception as e:
-        log(f"Error exporting preset: {e}", "ERROR")
-        return False
-
-
 def import_preset(src_path: Path, name: Optional[str] = None) -> bool:
     """
     Imports preset from external file.
@@ -742,51 +544,14 @@ def import_preset(src_path: Path, name: Optional[str] = None) -> bool:
     if name is None:
         name = src_path.stem
 
-    # Check for existing
-    if preset_exists(name):
-        log(f"Cannot import: preset '{name}' already exists", "WARNING")
-        return False
-
     try:
-        dest_path = get_preset_path(name)
+        candidate = Path(str(name or "").strip()).name or "Preset.txt"
+        if not candidate.lower().endswith(".txt"):
+            candidate = f"{candidate}.txt"
+        dest_path = get_presets_dir() / candidate
         shutil.copy2(src_path, dest_path)
         log(f"Imported preset '{name}' from {src_path}", "DEBUG")
         return True
     except Exception as e:
         log(f"Error importing preset: {e}", "ERROR")
-        return False
-
-
-def duplicate_preset(name: str, new_name: str) -> bool:
-    """
-    Creates a copy of preset with new name.
-
-    Args:
-        name: Source preset name
-        new_name: Name for the copy
-
-    Returns:
-        True if duplicated successfully
-    """
-    if not preset_exists(name):
-        log(f"Cannot duplicate: preset '{name}' not found", "WARNING")
-        return False
-
-    if preset_exists(new_name):
-        log(f"Cannot duplicate: preset '{new_name}' already exists", "WARNING")
-        return False
-
-    try:
-        preset = load_preset(name)
-        if preset is None:
-            return False
-
-        preset.name = new_name
-        preset.created = datetime.now().isoformat()
-        preset.modified = datetime.now().isoformat()
-
-        return save_preset(preset)
-
-    except Exception as e:
-        log(f"Error duplicating preset: {e}", "ERROR")
         return False

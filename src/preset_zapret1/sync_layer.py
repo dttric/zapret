@@ -16,11 +16,11 @@ class Zapret1PresetSyncLayer:
         *,
         on_dpi_reload_needed: Optional[Callable[[], None]] = None,
         invalidate_cache: Optional[Callable[[], None]] = None,
-        get_selected_name: Optional[Callable[[], str]] = None,
+        get_selected_file_name: Optional[Callable[[], str]] = None,
     ):
         self._on_dpi_reload_needed = on_dpi_reload_needed
         self._invalidate_cache = invalidate_cache or (lambda: None)
-        self._get_selected_name = get_selected_name or (lambda: "")
+        self._get_selected_file_name = get_selected_file_name or (lambda: "")
 
     def sync_preset(self, preset: PresetV1, changed_category: str | None = None) -> bool:
         _ = changed_category
@@ -155,7 +155,7 @@ class Zapret1PresetSyncLayer:
                 base_lines = [ln.strip() for ln in str(preset.base_args).splitlines() if ln.strip()]
 
             if not header_lines:
-                active_name = str(self._get_selected_name() or preset.name or "Current").strip() or "Current"
+                active_name = str(getattr(preset, "name", "") or "Current").strip() or "Current"
                 header_lines = [
                     f"# Preset: {active_name}",
                     f"# Modified: {datetime.now().isoformat()}",
@@ -202,9 +202,13 @@ class Zapret1PresetSyncLayer:
             active_path.write_text(str(content or ""), encoding="utf-8")
 
             if mirror_selected_source:
-                active_name = str(self._get_selected_name() or "").strip()
-                if active_name and active_name.lower() != "current":
-                    preset_path = get_preset_path_v1(active_name)
+                active_file_name = str(self._get_selected_file_name() or "").strip()
+                if active_file_name and active_file_name.lower() != "current":
+                    from core.services import get_app_paths
+
+                    preset_path = (
+                        get_app_paths().engine_paths("winws1").ensure_directories().presets_dir / active_file_name
+                    )
                     if preset_path.resolve() != active_path.resolve():
                         preset_path.parent.mkdir(parents=True, exist_ok=True)
                         preset_path.write_text(str(content or ""), encoding="utf-8")

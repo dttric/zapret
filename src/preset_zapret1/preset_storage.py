@@ -13,7 +13,6 @@ import shutil
 from datetime import datetime
 from pathlib import Path
 from typing import List, Optional, Tuple, TYPE_CHECKING
-import warnings
 
 from log import log
 from .preset_model import DEFAULT_PRESET_ICON_COLOR, normalize_preset_icon_color_v1
@@ -79,22 +78,6 @@ def get_presets_dir_v1() -> Path:
     return presets_dir
 
 
-def get_preset_path_v1(name: str) -> Path:
-    """Legacy compatibility wrapper: resolves a V1 preset by display/stem name."""
-    safe_name = _sanitize_filename(name)
-    return get_presets_dir_v1() / f"{safe_name}.txt"
-
-
-def get_preset_path_by_file_name_v1(file_name: str) -> Path:
-    """Preferred file-based V1 path helper."""
-    candidate = Path(str(file_name or "").strip()).name
-    if not candidate:
-        candidate = "Preset.txt"
-    if not candidate.lower().endswith(".txt"):
-        candidate = f"{candidate}.txt"
-    return get_presets_dir_v1() / candidate
-
-
 def get_active_preset_path_v1() -> Path:
     try:
         from core.services import get_app_paths, get_selection_service
@@ -121,26 +104,6 @@ def _sanitize_filename(name: str) -> str:
     return safe_name[:100]
 
 
-def list_presets_v1() -> List[str]:
-    presets_dir = get_presets_dir_v1()
-    presets: set[str] = set()
-    if presets_dir.exists():
-        for f in presets_dir.glob("*.txt"):
-            if f.is_file():
-                presets.add(f.stem)
-    return sorted(presets, key=lambda s: s.lower())
-
-
-def preset_exists_v1(name: str) -> bool:
-    """Legacy compatibility wrapper: checks existence by display/stem name."""
-    return get_preset_path_v1(name).exists()
-
-
-def preset_file_exists_v1(file_name: str) -> bool:
-    """Preferred file-based V1 existence check."""
-    return get_preset_path_by_file_name_v1(file_name).exists()
-
-
 def _parse_metadata_from_header_v1(header: str) -> Tuple[str, str, str, str]:
     created = datetime.now().isoformat()
     modified = datetime.now().isoformat()
@@ -164,12 +127,10 @@ def _parse_metadata_from_header_v1(header: str) -> Tuple[str, str, str, str]:
     return created, modified, description, icon_color
 
 
-def load_preset_v1(name: str) -> Optional["PresetV1"]:
-    """Legacy compatibility wrapper: loads a V1 preset by display/stem name."""
+def _load_preset_from_path_v1(preset_path: Path, fallback_name: str) -> Optional["PresetV1"]:
     from .preset_model import PresetV1, CategoryConfigV1
     from preset_zapret2.txt_preset_parser import parse_preset_file
 
-    preset_path = get_preset_path_v1(name)
     if not preset_path.exists():
         log(f"V1 preset not found: {preset_path}", "WARNING")
         return None
@@ -177,7 +138,7 @@ def load_preset_v1(name: str) -> Optional["PresetV1"]:
     try:
         data = parse_preset_file(preset_path)
         preset = PresetV1(
-            name=data.name if data.name != "Unnamed" else name,
+            name=data.name if data.name != "Unnamed" else fallback_name,
             base_args=data.base_args,
         )
         preset.created, preset.modified, preset.description, preset.icon_color = \
@@ -227,28 +188,25 @@ def load_preset_v1(name: str) -> Optional["PresetV1"]:
         except Exception:
             pass
 
-        log(f"Loaded V1 preset '{name}': {len(preset.categories)} categories", "DEBUG")
+        log(f"Loaded V1 preset '{fallback_name}': {len(preset.categories)} categories", "DEBUG")
         return preset
 
     except Exception as e:
-        log(f"Error loading V1 preset '{name}': {e}", "ERROR")
+        log(f"Error loading V1 preset '{fallback_name}': {e}", "ERROR")
         return None
-
-
-def load_preset_by_file_name_v1(file_name: str) -> Optional["PresetV1"]:
-    """Preferred file-based V1 load helper."""
-    candidate = Path(str(file_name or "").strip()).name
-    if not candidate:
-        return None
-    return load_preset_v1(Path(candidate).stem)
-
-
 def save_preset_v1(preset: "PresetV1") -> bool:
     import os
     from preset_zapret2.txt_preset_parser import PresetData, CategoryBlock, generate_preset_file
     from preset_zapret2.base_filter import build_category_base_filter_lines
 
-    preset_path = get_preset_path_v1(preset.name)
+    source_file_name = str(getattr(preset, "_source_file_name", "") or "").strip()
+    candidate = Path(source_file_name).name if source_file_name else ""
+    if not candidate:
+        safe_name = _sanitize_filename(str(getattr(preset, "name", "") or "Preset"))
+        candidate = f"{safe_name}.txt"
+    if not candidate.lower().endswith(".txt"):
+        candidate = f"{candidate}.txt"
+    preset_path = get_presets_dir_v1() / candidate
 
     try:
         data = PresetData(name=preset.name, base_args=preset.base_args)
@@ -351,43 +309,4 @@ def save_preset_v1(preset: "PresetV1") -> bool:
         raise
     except Exception as e:
         log(f"Error saving V1 preset '{preset.name}': {e}", "ERROR")
-        return False
-
-
-def delete_preset_v1(name: str) -> bool:
-    preset_path = get_preset_path_v1(name)
-    if not preset_path.exists():
-        log(f"Cannot delete: V1 preset '{name}' not found", "WARNING")
-        return False
-    try:
-        preset_path.unlink()
-        log(f"Deleted V1 preset '{name}'", "DEBUG")
-        return True
-    except Exception as e:
-        log(f"Error deleting V1 preset '{name}': {e}", "ERROR")
-        return False
-
-
-def rename_preset_v1(old_name: str, new_name: str) -> bool:
-    old_path = get_preset_path_v1(old_name)
-    new_path = get_preset_path_v1(new_name)
-    if not old_path.exists():
-        log(f"Cannot rename: V1 preset '{old_name}' not found", "WARNING")
-        return False
-    if new_path.exists():
-        log(f"Cannot rename: V1 preset '{new_name}' already exists", "WARNING")
-        return False
-    try:
-        preset = load_preset_v1(old_name)
-        if preset is None:
-            return False
-        preset.name = new_name
-        preset.touch()
-        if save_preset_v1(preset):
-            old_path.unlink()
-            log(f"Renamed V1 preset '{old_name}' to '{new_name}'", "DEBUG")
-            return True
-        return False
-    except Exception as e:
-        log(f"Error renaming V1 preset: {e}", "ERROR")
         return False
