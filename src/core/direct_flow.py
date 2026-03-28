@@ -80,9 +80,6 @@ class DirectFlowCoordinator:
     def get_selected_source_preset(self, launch_method: str):
         return self._ensure_selected_source_preset(launch_method)
 
-    def get_selected_source_preset_name(self, launch_method: str) -> str:
-        return self.get_selected_source_preset(launch_method).manifest.name
-
     def get_selected_source_file_name(self, launch_method: str) -> str:
         return self.get_selected_source_preset(launch_method).manifest.file_name
 
@@ -96,11 +93,11 @@ class DirectFlowCoordinator:
     def ensure_runtime(self, launch_method: str) -> Path:
         return self.ensure_launch_profile(launch_method, require_filters=False).launch_config_path
 
-    def get_selected_preset_name(self, launch_method: str) -> str:
-        return self.get_selected_source_preset_name(launch_method)
-
     def is_selected_preset(self, launch_method: str, preset_name: str) -> bool:
-        current = (self.get_selected_preset_name(launch_method) or "").strip().lower()
+        try:
+            current = (self.get_selected_source_preset(launch_method).manifest.name or "").strip().lower()
+        except Exception:
+            current = ""
         target = str(preset_name or "").strip().lower()
         return bool(current and target and current == target)
 
@@ -112,23 +109,6 @@ class DirectFlowCoordinator:
         from core.services import get_selection_service
 
         selected = get_selection_service().select_preset(engine, file_name)
-        return DirectLaunchProfile(
-            launch_method=method,
-            engine=engine,
-            preset_file_name=selected.manifest.file_name,
-            preset_name=selected.manifest.name,
-            launch_config_path=self.get_selected_source_path(method),
-            display_name=f"Пресет: {selected.manifest.name}",
-        )
-
-    def select_preset(self, launch_method: str, preset_name: str) -> DirectLaunchProfile:
-        method = self._normalize_method(launch_method)
-        engine = self._METHOD_TO_ENGINE[method]
-        self._ensure_support_files(method)
-
-        from core.services import get_selection_service
-
-        selected = get_selection_service().select_preset_by_name(engine, preset_name)
         return DirectLaunchProfile(
             launch_method=method,
             engine=engine,

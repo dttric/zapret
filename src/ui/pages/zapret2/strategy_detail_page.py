@@ -2429,9 +2429,8 @@ class StrategyDetailPage(BasePage):
                 get_direct_flow_coordinator().get_selected_source_file_name("direct_zapret2") or ""
             ).strip()
 
-            old_name = (
-                get_direct_flow_coordinator().get_selected_preset_name("direct_zapret2") or ""
-            ).strip()
+            selected_document = get_direct_flow_coordinator().get_selected_source_preset("direct_zapret2")
+            old_name = str(selected_document.manifest.name if selected_document is not None else "").strip()
         except Exception as e:
             if InfoBar:
                 InfoBar.error(

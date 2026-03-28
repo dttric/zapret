@@ -782,9 +782,6 @@ class DirectPresetFacade:
 
         get_direct_flow_coordinator().refresh_selected_runtime(self.launch_method)
 
-    def select(self, name: str):
-        return get_direct_flow_coordinator().select_preset(self.launch_method, name)
-
     def select_file_name(self, file_name: str):
         return get_direct_flow_coordinator().select_preset_file_name(self.launch_method, file_name)
 

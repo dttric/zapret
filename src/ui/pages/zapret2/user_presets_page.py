@@ -1683,7 +1683,8 @@ class Zapret2UserPresetsPage(BasePage):
 
             from core.services import get_direct_flow_coordinator
 
-            return str(get_direct_flow_coordinator().get_selected_preset_name("direct_zapret2") or "").strip()
+            preset = get_direct_flow_coordinator().get_selected_source_preset("direct_zapret2")
+            return str(preset.manifest.name if preset is not None else "").strip()
         except Exception:
             return ""
 

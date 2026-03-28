@@ -109,15 +109,15 @@ class PresetStore(QObject):
         self._do_full_load()
         self.presets_changed.emit()
 
-    def notify_preset_saved(self, name: str) -> None:
+    def notify_preset_saved(self, file_name: str) -> None:
         """
         Called after a preset file is saved/modified on disk.
         Re-reads that single preset and emits preset_updated.
         """
         self._ensure_loaded()
-        file_name = self._resolve_file_name(name) or str(name or "").strip()
-        self._reload_single_preset(file_name)
-        self.preset_updated.emit(self.get_display_name(file_name))
+        target_file_name = str(file_name or "").strip()
+        self._reload_single_preset(target_file_name)
+        self.preset_updated.emit(self.get_display_name(target_file_name))
 
     def notify_presets_changed(self) -> None:
         """
@@ -128,14 +128,14 @@ class PresetStore(QObject):
         self._do_full_load()
         self.presets_changed.emit()
 
-    def notify_preset_switched(self, name: str) -> None:
+    def notify_preset_switched(self, file_name: str) -> None:
         """
         Called after the selected source preset is switched.
         Updates the cached selected name and emits preset_switched.
         """
-        file_name = self._resolve_file_name(name) or str(name or "").strip() or None
-        self._active_file_name = file_name
-        self._active_name = self.get_display_name(file_name) if file_name else None
+        target_file_name = str(file_name or "").strip() or None
+        self._active_file_name = target_file_name
+        self._active_name = self.get_display_name(target_file_name) if target_file_name else None
         self.preset_switched.emit(self._active_name or "")
 
     def notify_active_name_changed(self) -> None:
@@ -157,7 +157,7 @@ class PresetStore(QObject):
 
     def _do_full_load(self) -> None:
         """Reads all presets from disk into memory."""
-        from core.services import get_preset_repository, get_selection_service
+        from core.services import get_app_paths, get_preset_repository, get_selection_service
         from .preset_storage import _load_preset_from_path
 
         self._presets_by_file_name.clear()
@@ -169,7 +169,7 @@ class PresetStore(QObject):
             if not file_name:
                 continue
             try:
-                preset_path = Path(document.source_path)
+                preset_path = get_app_paths().engine_paths("winws2").ensure_directories().presets_dir / file_name
                 preset = _load_preset_from_path(preset_path, Path(file_name).stem)
                 if preset is not None:
                     try:
@@ -234,17 +234,6 @@ class PresetStore(QObject):
                 self._presets_by_file_name.pop(target_file_name, None)
         except Exception as e:
             log(f"PresetStore: error reloading preset '{target_file_name}': {e}", "DEBUG")
-
-    def _resolve_file_name(self, reference: str) -> Optional[str]:
-        candidate = str(reference or "").strip()
-        if not candidate:
-            return None
-        if candidate in self._presets_by_file_name:
-            return candidate
-        file_names = self._display_name_to_file_names.get(candidate.lower(), [])
-        if not file_names:
-            return None
-        return file_names[0]
 
     def _display_name_for_file_name(self, file_name: str | None) -> str:
         candidate = str(file_name or "").strip()

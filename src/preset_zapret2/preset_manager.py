@@ -90,12 +90,6 @@ class PresetManager:
     def list_preset_file_names(self) -> List[str]:
         return self._get_store().get_preset_file_names()
 
-    def preset_file_exists(self, file_name: str) -> bool:
-        return self._get_store().get_preset_by_file_name(file_name) is not None
-
-    def load_preset_by_file_name(self, file_name: str) -> Optional[Preset]:
-        return self._get_store().get_preset_by_file_name(file_name)
-
     def load_all_presets(self) -> List[Preset]:
         """
         Loads all presets from the central PresetStore (in-memory).
@@ -130,7 +124,8 @@ class PresetManager:
 
         result = save_preset(preset)
         if result:
-            self.invalidate_preset_cache(preset.name)
+            source_file_name = str(getattr(preset, "_source_file_name", "") or "").strip()
+            self.invalidate_preset_cache(source_file_name or None)
         return result
 
     def delete_preset_by_file_name(self, file_name: str) -> bool:
@@ -215,7 +210,7 @@ class PresetManager:
         file_name = self.get_selected_source_preset_file_name()
         preset = None
         if file_name:
-            base_preset = self.load_preset_by_file_name(file_name)
+            base_preset = self._get_store().get_preset_by_file_name(file_name)
             if base_preset is not None:
                 preset = project_preset_for_direct_ui_mode(base_preset, current_mode)
 
@@ -276,24 +271,18 @@ class PresetManager:
         except Exception:
             return "basic"
 
-    def _select_source_preset(self, name: str) -> bool:
+    def _select_source_preset_file_name(self, file_name: str) -> bool:
         try:
             from core.services import get_selection_service
 
-            selection = get_selection_service()
-            store = self._get_store()
-            file_name = store._resolve_file_name(name) if hasattr(store, "_resolve_file_name") else None
-            if file_name:
-                selection.select_preset("winws2", file_name)
-            else:
-                selection.select_preset_by_name("winws2", name)
+            get_selection_service().select_preset("winws2", str(file_name or "").strip())
             self._invalidate_active_preset_cache()
             return True
         except Exception as e:
-            log(f"Error selecting source preset '{name}': {e}", "ERROR")
+            log(f"Error selecting source preset file '{file_name}': {e}", "ERROR")
             return False
 
-    def invalidate_preset_cache(self, name: Optional[str] = None) -> None:
+    def invalidate_preset_cache(self, file_name: Optional[str] = None) -> None:
         """
         Invalidates the preset cache in the central PresetStore.
 
@@ -301,13 +290,13 @@ class PresetManager:
         For None (full invalidation), does a full refresh.
 
         Args:
-            name: Preset name to invalidate, or None to do a full refresh.
+            file_name: Имя файла пресета для точечной перезагрузки, или None для полного refresh.
         """
         store = self._get_store()
-        if name is None:
+        if file_name is None:
             store.refresh()
         else:
-            store.notify_preset_saved(name)
+            store.notify_preset_saved(file_name)
 
     def _notify_list_changed(self) -> None:
         """Notifies the central store that the preset list changed (add/remove/rename)."""
@@ -329,7 +318,7 @@ class PresetManager:
             created = self._get_facade().create(name, from_current=from_current)
             self._notify_list_changed()
             log(f"Created preset '{name}'", "INFO")
-            return self.load_preset_by_file_name(created.manifest.file_name)
+            return self._get_store().get_preset_by_file_name(created.manifest.file_name)
         except Exception as e:
             log(f"Error creating preset: {e}", "ERROR")
             return None
@@ -846,7 +835,7 @@ class PresetManager:
                     except Exception:
                         pass
                 save_preset(preset)
-                self.invalidate_preset_cache(preset.name)
+                self.invalidate_preset_cache(source_file_name or None)
 
             return self.sync_preset_to_active_file(preset)
         except Exception as e:
@@ -1016,7 +1005,7 @@ class PresetManager:
                 log(f"Error writing reset preset '{name}': {e}", "ERROR")
                 return False
 
-            self.invalidate_preset_cache(name)
+            self.invalidate_preset_cache(target_file_name)
 
             # Avoid producing a mismatched selected-preset launch config.
             do_sync = bool(sync_active_file)
@@ -1029,14 +1018,14 @@ class PresetManager:
                     do_sync = False
 
             if make_active:
-                if not self._select_source_preset(name):
+                if not self._select_source_preset_file_name(target_file_name):
                     return False
 
             # Refresh launch-ready source preset state through the regular save path.
             if do_sync:
                 try:
                     document = self._get_facade().get_document(name)
-                    preset = self.load_preset_by_file_name(document.manifest.file_name) if document is not None else None
+                    preset = self._get_store().get_preset_by_file_name(document.manifest.file_name) if document is not None else None
                     if preset is None:
                         log(f"Cannot sync reset preset '{name}': failed to reload source preset", "ERROR")
                         return False
@@ -1051,7 +1040,7 @@ class PresetManager:
 
             if make_active:
                 if emit_switched:
-                    self._get_store().notify_preset_switched(name)
+                    self._get_store().notify_preset_switched(target_file_name)
                     if self.on_preset_switched:
                         try:
                             self.on_preset_switched(name)
@@ -1099,7 +1088,8 @@ class PresetManager:
                     except Exception:
                         pass
             save_preset(preset)
-            self.invalidate_preset_cache(preset.name)
+            source_file_name = str(getattr(preset, "_source_file_name", "") or "").strip()
+            self.invalidate_preset_cache(source_file_name or None)
 
         # Then refresh the selected source preset state (triggers DPI reload via callback)
         # Note: sync_preset_to_active_file() already invalidates active cache

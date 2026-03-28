@@ -78,18 +78,5 @@ class PresetSelectionService:
             return None
         return self.select_preset(engine, presets[0].manifest.file_name)
 
-    def select_preset_by_name(self, engine: str, name: str) -> PresetDocument:
-        target = str(name or "").strip().lower()
-        matches = [
-            preset
-            for preset in self._repository.list_presets(engine)
-            if preset.manifest.name.strip().lower() == target
-        ]
-        if not matches:
-            raise ValueError(f"Preset not found: {name}")
-        if len(matches) > 1:
-            raise ValueError(f"Multiple presets share the same display name: {name}")
-        return self.select_preset(engine, matches[0].manifest.file_name)
-
     def _selection_path(self, engine: str) -> Path:
         return self._paths.engine_paths(engine).ensure_directories().selected_state_path

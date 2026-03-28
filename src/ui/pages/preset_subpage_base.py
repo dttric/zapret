@@ -407,7 +407,8 @@ class PresetSubpageBase(BasePage):
                 if not used_facade:
                     self._refresh_selected_runtime()
                 self._notify_preset_switched()
-            self._notify_preset_saved(self._preset_file_name or self._preset_name)
+            if self._preset_file_name:
+                self._notify_preset_saved(self._preset_file_name)
             self._set_footer(f"Сохранено {datetime.now().strftime('%H:%M:%S')}")
         except Exception as e:
             self._set_footer(f"Ошибка сохранения: {e}")
@@ -581,7 +582,8 @@ class PresetSubpageBase(BasePage):
                     facade.reset_to_template(self._preset_name)
                 self._load_file()
                 self._refresh_header()
-                self._notify_preset_saved(self._preset_file_name or self._preset_name)
+                if self._preset_file_name:
+                    self._notify_preset_saved(self._preset_file_name)
                 if (self._preset_file_name and facade.is_selected_file_name(self._preset_file_name)) or facade.is_selected(self._preset_name):
                     self._notify_preset_switched()
                 self._show_success(f"Пресет «{self._preset_name}» сброшен")
@@ -637,7 +639,8 @@ class PresetSubpageBase(BasePage):
             try:
                 from core.services import get_direct_flow_coordinator
 
-                return (get_direct_flow_coordinator().get_selected_preset_name(method) or "").strip()
+                selected = get_direct_flow_coordinator().get_selected_source_preset(method)
+                return (selected.manifest.name if selected is not None else "").strip()
             except Exception:
                 return ""
         return (self._get_manager_obj().get_active_preset_name() or "").strip()
@@ -680,10 +683,9 @@ class PresetSubpageBase(BasePage):
             try:
                 from core.services import get_direct_flow_coordinator
 
-                if self._preset_file_name:
-                    get_direct_flow_coordinator().select_preset_file_name(method, self._preset_file_name)
-                else:
-                    get_direct_flow_coordinator().select_preset(method, self._preset_name)
+                if not self._preset_file_name:
+                    return False
+                get_direct_flow_coordinator().select_preset_file_name(method, self._preset_file_name)
                 self._notify_preset_switched()
                 return True
             except Exception:
@@ -695,31 +697,33 @@ class PresetSubpageBase(BasePage):
 
     def _notify_preset_switched(self) -> None:
         method = self._direct_launch_method()
+        if not self._preset_file_name:
+            return
         try:
             if method == "direct_zapret2":
                 from preset_zapret2.preset_store import get_preset_store
 
-                get_preset_store().notify_preset_switched(self._preset_file_name or self._preset_name)
+                get_preset_store().notify_preset_switched(self._preset_file_name)
             elif method == "direct_zapret1":
                 from preset_zapret1.preset_store import get_preset_store_v1
 
-                get_preset_store_v1().notify_preset_switched(self._preset_file_name or self._preset_name)
+                get_preset_store_v1().notify_preset_switched(self._preset_file_name)
         except Exception:
             pass
 
-    def _notify_preset_saved(self, name: str) -> None:
+    def _notify_preset_saved(self, file_name: str) -> None:
         method = self._direct_launch_method()
         try:
             if method == "direct_zapret2":
                 from preset_zapret2.preset_store import get_preset_store
 
-                get_preset_store().notify_preset_saved(name)
+                get_preset_store().notify_preset_saved(file_name)
             elif method == "direct_zapret1":
                 from preset_zapret1.preset_store import get_preset_store_v1
 
-                get_preset_store_v1().notify_preset_saved(name)
+                get_preset_store_v1().notify_preset_saved(file_name)
             else:
-                self._get_manager_obj().invalidate_preset_cache(name)
+                self._get_manager_obj().invalidate_preset_cache(file_name)
         except Exception:
             pass
 
