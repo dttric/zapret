@@ -513,8 +513,8 @@ def collect_direct_strategy_args(app_instance) -> tuple[List[str], str, str]:
 
         launch_method = get_strategy_launch_method()
 
-        # direct_zapret2/direct_zapret1: аргументы берём из generated launch config
-        # выбранного пресета, а не из legacy combine_strategies().
+        # direct_zapret2/direct_zapret1: аргументы берём из выбранного
+        # source-пресета, а не из legacy combine_strategies().
         if launch_method == "direct_zapret2":
             try:
                 from core.services import get_direct_flow_coordinator
@@ -528,16 +528,16 @@ def collect_direct_strategy_args(app_instance) -> tuple[List[str], str, str]:
                 return [], "direct_zapret2", winws_exe
 
             if not profile.launch_config_path.exists():
-                log(f"Generated launch config не найден: {profile.launch_config_path}", "❌ ERROR")
+                log(f"Выбранный source-пресет не найден: {profile.launch_config_path}", "❌ ERROR")
                 return [], profile.display_name, winws_exe
 
             # winws2.exe поддерживает загрузку аргументов из файла через формат @file.
             # Это сильно сокращает командную строку для задач/служб.
             args = [f"@{profile.launch_config_path}"]
-            log(f"DirectZ2 autostart: используем generated launch config как @config: {profile.launch_config_path}", "INFO")
+            log(f"DirectZ2 autostart: используем выбранный source-пресет как @config: {profile.launch_config_path}", "INFO")
             return args, profile.display_name, winws_exe
 
-        # direct_zapret1: winws.exe загружается из generated launch config через @file
+        # direct_zapret1: winws.exe загружается из выбранного source-пресета через @file
         if launch_method == "direct_zapret1":
             try:
                 from core.services import get_direct_flow_coordinator
@@ -551,11 +551,11 @@ def collect_direct_strategy_args(app_instance) -> tuple[List[str], str, str]:
                 return [], "direct_zapret1", winws_exe
 
             if not profile.launch_config_path.exists():
-                log(f"DirectZ1 autostart: generated launch config не найден: {profile.launch_config_path}", "ERROR")
+                log(f"DirectZ1 autostart: выбранный source-пресет не найден: {profile.launch_config_path}", "ERROR")
                 return [], profile.display_name, winws_exe
 
             args_v1 = [f"@{profile.launch_config_path}"]
-            log(f"DirectZ1 autostart: используем generated launch config как @config: {profile.launch_config_path}", "INFO")
+            log(f"DirectZ1 autostart: используем выбранный source-пресет как @config: {profile.launch_config_path}", "INFO")
             return args_v1, profile.display_name, winws_exe
 
         # Получаем выборы стратегий

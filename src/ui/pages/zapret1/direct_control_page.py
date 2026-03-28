@@ -332,9 +332,8 @@ class Zapret1DirectControlPage(BasePage):
         try:
             from core.services import get_direct_flow_coordinator
 
-            active_name = (
-                get_direct_flow_coordinator().get_selected_preset_name("direct_zapret1") or ""
-            ).strip()
+            preset = get_direct_flow_coordinator().get_selected_source_preset("direct_zapret1")
+            active_name = str(getattr(getattr(preset, "manifest", None), "name", "") or "").strip()
             if active_name:
                 self.preset_name_label.setText(active_name)
                 set_tooltip(self.preset_name_label, active_name)

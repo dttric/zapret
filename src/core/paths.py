@@ -14,7 +14,7 @@ class EnginePaths:
     runtime_low_dir: Path
     index_path: Path
     selected_state_path: Path
-    effective_config_path: Path
+    launch_config_path: Path
     validate_dry_run_config_path: Path
     validate_lua_config_path: Path
     worker_pid_path: Path
@@ -57,7 +57,7 @@ class AppPaths:
             runtime_low_dir=runtime_low_dir,
             index_path=state_dir / "index.json",
             selected_state_path=state_dir / "selection.json",
-            effective_config_path=runtime_dir / "effective.txt",
+            launch_config_path=runtime_dir / "launch.txt",
             validate_dry_run_config_path=runtime_dir / "validate_dry_run.txt",
             validate_lua_config_path=runtime_dir / "validate_lua.txt",
             worker_pid_path=runtime_dir / "worker.pid",

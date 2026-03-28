@@ -262,8 +262,8 @@ class Zapret1StrategiesPage(BasePage):
             from preset_zapret1.preset_store import get_preset_store_v1
 
             store = get_preset_store_v1()
-            active_name = store.get_active_preset_name() or ""
-            preset = store.get_preset(active_name) if active_name else None
+            active_file_name = store.get_active_preset_file_name() or ""
+            preset = store.get_preset_by_file_name(active_file_name) if active_file_name else None
             if not preset:
                 return {}
             return {

@@ -389,8 +389,8 @@ def ensure_templates_copied_to_presets() -> bool:
     - Deleted built-ins are restored automatically.
     - Before overwrite, old preset content is backed up to
       `<presets_dir>/_builtin_version_backups/`.
-    - If an updated preset is currently selected, the generated runtime config
-      is regenerated through the direct flow.
+    - If an updated preset is currently selected, direct flow refreshes
+      launch-ready state from that same source preset.
 
     Returns True on success.
     """

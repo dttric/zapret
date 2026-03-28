@@ -5,7 +5,7 @@ from __future__ import annotations
 
 Presets stored in: %APPDATA%/zapret/presets_v1/
 Selected preset state is managed by the core selection service.
-Generated runtime config lives under the core runtime directory.
+The selected source preset is also the direct launch file.
 """
 import os
 import re
@@ -13,6 +13,7 @@ import shutil
 from datetime import datetime
 from pathlib import Path
 from typing import List, Optional, Tuple, TYPE_CHECKING
+import warnings
 
 from log import log
 from .preset_model import DEFAULT_PRESET_ICON_COLOR, normalize_preset_icon_color_v1
@@ -79,12 +80,37 @@ def get_presets_dir_v1() -> Path:
 
 
 def get_preset_path_v1(name: str) -> Path:
+    """Legacy compatibility wrapper: resolves a V1 preset by display/stem name."""
     safe_name = _sanitize_filename(name)
     return get_presets_dir_v1() / f"{safe_name}.txt"
 
 
+def get_preset_path_by_file_name_v1(file_name: str) -> Path:
+    """Preferred file-based V1 path helper."""
+    candidate = Path(str(file_name or "").strip()).name
+    if not candidate:
+        candidate = "Preset.txt"
+    if not candidate.lower().endswith(".txt"):
+        candidate = f"{candidate}.txt"
+    return get_presets_dir_v1() / candidate
+
+
 def get_active_preset_path_v1() -> Path:
-    return _core_paths().effective_config_path
+    try:
+        from core.services import get_app_paths, get_selection_service
+
+        engine = _core_engine_id()
+        engine_paths = get_app_paths().engine_paths(engine)
+        selection = get_selection_service()
+        selected = selection.get_selected_preset(engine)
+        if selected is None:
+            selected = selection.ensure_selected_preset(engine, "Default.txt")
+        if selected is not None:
+            return engine_paths.presets_dir / selected.manifest.file_name
+    except Exception:
+        pass
+
+    return Path(_get_presets_root_path()) / "Default.txt"
 
 
 def _sanitize_filename(name: str) -> str:
@@ -101,14 +127,18 @@ def list_presets_v1() -> List[str]:
     if presets_dir.exists():
         for f in presets_dir.glob("*.txt"):
             if f.is_file():
-                if f.stem.lower() == "preset-zapret1":
-                    continue
                 presets.add(f.stem)
     return sorted(presets, key=lambda s: s.lower())
 
 
 def preset_exists_v1(name: str) -> bool:
+    """Legacy compatibility wrapper: checks existence by display/stem name."""
     return get_preset_path_v1(name).exists()
+
+
+def preset_file_exists_v1(file_name: str) -> bool:
+    """Preferred file-based V1 existence check."""
+    return get_preset_path_by_file_name_v1(file_name).exists()
 
 
 def _parse_metadata_from_header_v1(header: str) -> Tuple[str, str, str, str]:
@@ -135,6 +165,7 @@ def _parse_metadata_from_header_v1(header: str) -> Tuple[str, str, str, str]:
 
 
 def load_preset_v1(name: str) -> Optional["PresetV1"]:
+    """Legacy compatibility wrapper: loads a V1 preset by display/stem name."""
     from .preset_model import PresetV1, CategoryConfigV1
     from preset_zapret2.txt_preset_parser import parse_preset_file
 
@@ -202,6 +233,14 @@ def load_preset_v1(name: str) -> Optional["PresetV1"]:
     except Exception as e:
         log(f"Error loading V1 preset '{name}': {e}", "ERROR")
         return None
+
+
+def load_preset_by_file_name_v1(file_name: str) -> Optional["PresetV1"]:
+    """Preferred file-based V1 load helper."""
+    candidate = Path(str(file_name or "").strip()).name
+    if not candidate:
+        return None
+    return load_preset_v1(Path(candidate).stem)
 
 
 def save_preset_v1(preset: "PresetV1") -> bool:

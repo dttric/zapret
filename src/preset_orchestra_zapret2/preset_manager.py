@@ -1,9 +1,9 @@
 # preset_zapret2/preset_manager.py
 """
-High-level preset manager for direct_zapret2 mode.
+High-level preset manager for direct_zapret2_orchestra mode.
 
 Provides a unified API for:
-- Switching presets (copy to preset-zapret2.txt + DPI reload)
+- Switching presets (rewrite preset-zapret2-orchestra.txt + DPI reload)
 - Creating/editing/deleting presets
 - Managing active preset
 
@@ -13,7 +13,7 @@ Usage:
     # List available presets
     presets = manager.list_presets()
 
-    # Switch to a preset (copies to preset-zapret2.txt)
+    # Switch to a preset (rewrites preset-zapret2-orchestra.txt)
     manager.switch_preset("Gaming")
 
     # Get current preset
@@ -201,8 +201,8 @@ class PresetManager:
         Loads the currently active preset with caching.
 
         First checks cache validity (file mtime).
-        If cache is invalid, prefers the active runtime file when it exists.
-        When the runtime file is missing, falls back to the preset selected in
+        If cache is invalid, prefers the active orchestra launch preset file when it exists.
+        When that launch file is missing, falls back to the preset selected in
         the active-preset state store without emitting a spurious warning.
 
         Returns:
@@ -219,11 +219,11 @@ class PresetManager:
         preset = None
 
         if active_path.exists():
-            # Source of truth for active state is the runtime file when it exists.
+            # Source of truth for orchestra active state is the launch file when it exists.
             preset = self._load_from_active_file()
         else:
             # The selected preset name is enough to restore UI state while the
-            # runtime file has not been materialized yet.
+            # active orchestra launch file has not been written yet.
             name = get_active_preset_name()
             if name and preset_exists(name):
                 preset = load_preset(name)
@@ -245,7 +245,7 @@ class PresetManager:
 
     def _load_from_active_file(self) -> Optional[Preset]:
         """
-        Loads preset directly from preset-zapret2.txt.
+        Loads preset directly from preset-zapret2-orchestra.txt.
 
         Used as fallback when active preset name is not available.
 
@@ -436,6 +436,48 @@ class PresetManager:
         lines.insert(insert_at, debug_line)
         return "\n".join(lines).strip()
 
+    def get_debug_log_enabled(self) -> bool:
+        try:
+            import winreg
+            from config import REGISTRY_PATH
+
+            direct_path = rf"{REGISTRY_PATH}\DirectMethod"
+            with winreg.OpenKey(winreg.HKEY_CURRENT_USER, direct_path) as key:
+                value, _ = winreg.QueryValueEx(key, "DebugLogEnabled")
+                return bool(value)
+        except Exception:
+            return False
+
+    def set_debug_log_enabled(self, enabled: bool) -> bool:
+        try:
+            import winreg
+            from datetime import datetime
+            from config import REGISTRY_PATH
+
+            direct_path = rf"{REGISTRY_PATH}\DirectMethod"
+            with winreg.CreateKey(winreg.HKEY_CURRENT_USER, direct_path) as key:
+                winreg.SetValueEx(key, "DebugLogEnabled", 0, winreg.REG_DWORD, int(bool(enabled)))
+                if enabled:
+                    try:
+                        winreg.QueryValueEx(key, "DebugLogFile")
+                    except Exception:
+                        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                        winreg.SetValueEx(
+                            key,
+                            "DebugLogFile",
+                            0,
+                            winreg.REG_SZ,
+                            f"logs/zapret_winws2_debug_{timestamp}.log",
+                        )
+                else:
+                    try:
+                        winreg.DeleteValue(key, "DebugLogFile")
+                    except Exception:
+                        pass
+            return True
+        except Exception:
+            return False
+
     def _get_active_file_mtime(self) -> float:
         """
         Gets modification time of active preset file.
@@ -489,7 +531,7 @@ class PresetManager:
         """
         Switches to a preset.
 
-        Copies preset file to preset-zapret2.txt and optionally reloads DPI.
+        Rewrites preset-zapret2-orchestra.txt and optionally reloads DPI.
 
         Args:
             name: Preset name to switch to
@@ -630,7 +672,7 @@ class PresetManager:
 
         Args:
             name: Name for new preset
-            from_current: If True, copy current preset-zapret2.txt.
+            from_current: If True, copy current preset-zapret2-orchestra.txt.
                          If False, create empty preset.
 
         Returns:
@@ -870,7 +912,7 @@ class PresetManager:
         Gets path to active preset file.
 
         Returns:
-            Path to preset-zapret2.txt
+            Path to preset-zapret2-orchestra.txt
         """
         return get_active_preset_path()
 
@@ -886,7 +928,7 @@ class PresetManager:
 
     def sync_preset_to_active_file(self, preset: Preset) -> bool:
         """
-        Writes preset directly to preset-zapret2.txt.
+        Writes preset directly to preset-zapret2-orchestra.txt.
 
         Use this when editing the active preset without switching.
         Triggers DPI reload.
@@ -1651,7 +1693,7 @@ class PresetManager:
 
     def reset_active_preset_to_default_template(self) -> bool:
         """
-        Global reset: replace active preset-zapret2.txt content with a built-in template.
+        Global reset: replace active preset-zapret2-orchestra.txt content with a built-in template.
 
         Does not depend on preset_zapret2/default.txt existing on disk.
         """
@@ -1819,14 +1861,14 @@ class PresetManager:
         """
         Resets a preset by force-copying its matching template content.
 
-        By default, also activates it and rewrites preset-zapret2.txt.
+        By default, also activates it and rewrites preset-zapret2-orchestra.txt.
 
         First tries to find a template matching the preset name in presets_v2_template/,
         then falls back to the default template.
 
         Overwrites:
         - presets/{preset_name}.txt
-        - preset-zapret2.txt (if sync_active_file=True)
+        - preset-zapret2-orchestra.txt (if sync_active_file=True)
         """
         from .preset_defaults import (
             get_template_content,
@@ -1936,7 +1978,7 @@ class PresetManager:
                 set_active_preset_name(name)
                 self._invalidate_active_preset_cache()
 
-            # Sync runtime file before emitting preset_switched (DPI reload expects new file).
+            # Sync the active orchestra launch file before emitting preset_switched.
             if do_sync:
                 try:
                     active_path = get_active_preset_path()

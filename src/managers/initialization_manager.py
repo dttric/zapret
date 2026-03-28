@@ -137,14 +137,14 @@ class InitializationManager:
             try:
                 method = get_strategy_launch_method()
 
-                # Убедимся, что выбранные пресеты и runtime configs подготовлены до расчёта summary.
+                # Убедимся, что выбранные source-пресеты подготовлены до расчёта summary.
                 if method == "direct_zapret2":
                     from core.services import get_direct_flow_coordinator
                     try:
                         get_direct_flow_coordinator().ensure_runtime("direct_zapret2")
                     except Exception as e:
                         log(
-                            f"direct_zapret2: не удалось подготовить runtime config: {e}",
+                            f"direct_zapret2: не удалось подготовить выбранный source-пресет: {e}",
                             "ERROR",
                         )
                 elif method == "direct_zapret2_orchestra":
@@ -159,7 +159,7 @@ class InitializationManager:
                     try:
                         get_direct_flow_coordinator().ensure_runtime("direct_zapret1")
                     except Exception:
-                        log("direct_zapret1: не удалось подготовить runtime config", "ERROR")
+                        log("direct_zapret1: не удалось подготовить выбранный source-пресет", "ERROR")
 
                 if method == "orchestra":
                     initial_name = getattr(self.app, "current_strategy_name", None) or "Оркестр"
@@ -193,11 +193,11 @@ class InitializationManager:
                         get_direct_flow_coordinator().ensure_runtime("direct_zapret2")
                     except Exception as e:
                         log(
-                            f"direct_zapret2: не удалось подготовить runtime config: {e}",
+                            f"direct_zapret2: не удалось подготовить выбранный source-пресет: {e}",
                             "ERROR",
                         )
                         try:
-                            self.app.set_status(f"Ошибка: не удалось подготовить runtime config: {e}")
+                            self.app.set_status(f"Ошибка: не удалось подготовить выбранный пресет: {e}")
                         except Exception:
                             pass
                 elif launch_method == "direct_zapret2_orchestra":
@@ -219,9 +219,9 @@ class InitializationManager:
                     try:
                         get_direct_flow_coordinator().ensure_runtime("direct_zapret1")
                     except Exception:
-                        log("direct_zapret1: не удалось подготовить runtime config", "ERROR")
+                        log("direct_zapret1: не удалось подготовить выбранный source-пресет", "ERROR")
                         try:
-                            self.app.set_status("Ошибка: не удалось подготовить runtime config")
+                            self.app.set_status("Ошибка: не удалось подготовить выбранный пресет")
                         except Exception:
                             pass
 
@@ -362,7 +362,7 @@ class InitializationManager:
                 self.app.set_status("⚠️ Выберите стратегию для запуска")
                 return
 
-        # Для direct_zapret1 проверяем наличие runtime config выбранного пресета
+        # Для direct_zapret1 проверяем наличие выбранного source-пресета
         elif launch_method == "direct_zapret1":
             from core.services import get_direct_flow_coordinator
             try:
@@ -861,7 +861,7 @@ class InitializationManager:
             # 3. Формируем selected_mode для запуска из preset файла
             selected_mode = profile.to_selected_mode()
 
-            log(f"Автозапуск direct_zapret2 из generated launch config: {preset_path}", "INFO")
+            log(f"Автозапуск direct_zapret2 из выбранного source-пресета: {preset_path}", "INFO")
 
             # 4. Запускаем через dpi_controller
             self.app.current_strategy_name = profile.display_name

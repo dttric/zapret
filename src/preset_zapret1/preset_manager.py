@@ -1,5 +1,5 @@
 # preset_zapret1/preset_manager.py
-"""Mutation shell for direct_zapret1 source presets and runtime sync."""
+"""Mutation shell for direct_zapret1 source presets and launch-ready source flow."""
 
 import os
 import re
@@ -17,8 +17,6 @@ from .preset_model import (
     validate_preset_v1,
 )
 from .preset_storage import (
-    get_preset_path_v1,
-    preset_exists_v1,
     save_preset_v1,
 )
 
@@ -49,7 +47,7 @@ class PresetManagerV1:
             self._sync_layer = Zapret1PresetSyncLayer(
                 on_dpi_reload_needed=self.on_dpi_reload_needed,
                 invalidate_cache=self._invalidate_active_preset_cache,
-                get_selected_name=lambda: self.get_active_preset_name() or "",
+                get_selected_name=lambda: str(getattr(self.get_active_preset(), "name", "") or ""),
             )
         return self._sync_layer
 
@@ -59,18 +57,27 @@ class PresetManagerV1:
         return DirectPresetFacade.from_launch_method("direct_zapret1")
 
     def list_presets(self) -> List[str]:
-        return self._get_store().get_preset_names()
+        store = self._get_store()
+        return [store.get_display_name(file_name) for file_name in store.get_preset_file_names()]
 
-    def preset_exists(self, name: str) -> bool:
-        return self._get_store().preset_exists(name)
+    def list_preset_file_names(self) -> List[str]:
+        return self._get_store().get_preset_file_names()
 
-    def load_preset(self, name: str) -> Optional[PresetV1]:
-        return self._get_store().get_preset(name)
+    def preset_file_exists(self, file_name: str) -> bool:
+        return self._get_store().get_preset_by_file_name(file_name) is not None
+
+    def load_preset_by_file_name(self, file_name: str) -> Optional[PresetV1]:
+        return self._get_store().get_preset_by_file_name(file_name)
 
     def load_all_presets(self) -> List[PresetV1]:
         store = self._get_store()
-        all_presets = store.get_all_presets()
-        return [all_presets[n] for n in sorted(all_presets.keys(), key=lambda s: s.lower())]
+        names = store.get_preset_file_names()
+        result: List[PresetV1] = []
+        for file_name in names:
+            preset = store.get_preset_by_file_name(file_name)
+            if preset is not None:
+                result.append(preset)
+        return result
 
     def save_preset(self, preset: PresetV1) -> bool:
         errors = validate_preset_v1(preset)
@@ -81,15 +88,59 @@ class PresetManagerV1:
             self.invalidate_preset_cache(preset.name)
         return result
 
-    def get_active_preset_name(self) -> Optional[str]:
-        """Returns the currently selected source preset name."""
+    def delete_preset_by_file_name(self, file_name: str) -> bool:
+        try:
+            document = self._get_facade().get_document_by_file_name(file_name)
+            active_file_name = self.get_active_preset_file_name()
+            if document is not None and active_file_name and document.manifest.file_name == active_file_name:
+                log(f"Cannot delete active V1 preset '{file_name}'", "WARNING")
+                return False
+            self._get_facade().delete_by_file_name(file_name)
+            self._notify_list_changed()
+            return True
+        except Exception as e:
+            log(f"Error deleting V1 preset '{file_name}': {e}", "ERROR")
+            return False
+
+    def rename_preset_by_file_name(self, file_name: str, new_name: str) -> bool:
+        try:
+            document = self._get_facade().get_document_by_file_name(file_name)
+            active_file_name = self.get_active_preset_file_name()
+            was_selected = bool(document is not None and active_file_name and document.manifest.file_name == active_file_name)
+            updated = self._get_facade().rename_by_file_name(file_name, new_name)
+            if was_selected:
+                self._get_store().notify_preset_switched(updated.manifest.file_name)
+            self._notify_list_changed()
+            return True
+        except Exception as e:
+            log(f"Error renaming V1 preset '{file_name}' -> '{new_name}': {e}", "ERROR")
+            return False
+
+    def duplicate_preset_by_file_name(self, file_name: str, new_name: str) -> bool:
+        try:
+            self._get_facade().duplicate_by_file_name(file_name, new_name)
+            self._notify_list_changed()
+            return True
+        except Exception as e:
+            log(f"Error duplicating V1 preset '{file_name}' -> '{new_name}': {e}", "ERROR")
+            return False
+
+    def export_preset_by_file_name(self, file_name: str, dest_path: Path) -> bool:
+        try:
+            self._get_facade().export_plain_text_by_file_name(file_name, dest_path)
+            return True
+        except Exception as e:
+            log(f"Error exporting V1 preset '{file_name}' to '{dest_path}': {e}", "ERROR")
+            return False
+
+    def get_active_preset_file_name(self) -> Optional[str]:
         try:
             from core.services import get_direct_flow_coordinator
 
-            return get_direct_flow_coordinator().get_selected_preset_name("direct_zapret1")
+            return get_direct_flow_coordinator().get_selected_source_file_name("direct_zapret1")
         except Exception:
             try:
-                return self._get_store().get_active_preset_name()
+                return self._get_store().get_active_preset_file_name()
             except Exception:
                 return None
 
@@ -100,10 +151,10 @@ class PresetManagerV1:
             if current_mtime == self._active_preset_mtime and current_mtime > 0:
                 return self._active_preset_cache
 
-        name = self.get_active_preset_name()
+        file_name = self.get_active_preset_file_name()
         preset = None
-        if name:
-            preset = self.load_preset(name)
+        if file_name:
+            preset = self.load_preset_by_file_name(file_name)
 
         if preset:
             self._active_preset_cache = preset
@@ -139,7 +190,13 @@ class PresetManagerV1:
         try:
             from core.services import get_selection_service
 
-            get_selection_service().select_preset_by_name("winws1", name)
+            selection = get_selection_service()
+            store = self._get_store()
+            file_name = store._resolve_file_name(name) if hasattr(store, "_resolve_file_name") else None
+            if file_name:
+                selection.select_preset("winws1", file_name)
+            else:
+                selection.select_preset_by_name("winws1", name)
             self._invalidate_active_preset_cache()
             return True
         except Exception as e:
@@ -157,63 +214,18 @@ class PresetManagerV1:
         self._get_store().notify_presets_changed()
 
     def create_preset(self, name: str, from_current: bool = True) -> Optional[PresetV1]:
-        if self.preset_exists(name):
-            log(f"Cannot create V1: preset '{name}' already exists", "WARNING")
-            return None
         try:
-            self._get_facade().create(name, from_current=from_current)
+            created = self._get_facade().create(name, from_current=from_current)
             self._notify_list_changed()
             log(f"Created V1 preset '{name}'", "INFO")
-            return self.load_preset(name)
+            return self.load_preset_by_file_name(created.manifest.file_name)
         except Exception as e:
             log(f"Error creating V1 preset: {e}", "ERROR")
             return None
 
-    def delete_preset(self, name: str) -> bool:
-        active_name = self.get_active_preset_name()
-        if active_name == name:
-            log(f"Cannot delete active V1 preset '{name}'", "WARNING")
-            return False
-        try:
-            self._get_facade().delete(name)
-            self._notify_list_changed()
-            return True
-        except Exception as e:
-            log(f"Error deleting V1 preset '{name}': {e}", "ERROR")
-            return False
-
-    def rename_preset(self, old_name: str, new_name: str) -> bool:
-        try:
-            was_selected = self.get_active_preset_name() == old_name
-            self._get_facade().rename(old_name, new_name)
-            if was_selected:
-                self._get_store().notify_preset_switched(new_name)
-            self._notify_list_changed()
-            return True
-        except Exception as e:
-            log(f"Error renaming V1 preset '{old_name}' -> '{new_name}': {e}", "ERROR")
-            return False
-
-    def duplicate_preset(self, name: str, new_name: str) -> bool:
-        try:
-            self._get_facade().duplicate(name, new_name)
-            self._notify_list_changed()
-            return True
-        except Exception as e:
-            log(f"Error duplicating V1 preset '{name}' -> '{new_name}': {e}", "ERROR")
-            return False
-
-    def export_preset(self, name: str, dest_path: Path) -> bool:
-        try:
-            self._get_facade().export_plain_text(name, dest_path)
-            return True
-        except Exception as e:
-            log(f"Error exporting V1 preset '{name}' to '{dest_path}': {e}", "ERROR")
-            return False
-
     def sync_preset_to_active_file(self, preset: PresetV1) -> bool:
         """
-        Refreshes the Zapret 1 launch config from the selected source preset.
+        Saves the selected Zapret 1 source preset in launch-ready form.
 
         For the selected preset we must preserve the raw source text, because
         imported multi-block presets are already launch-ready and a parse +
@@ -222,20 +234,18 @@ class PresetManagerV1:
         """
         preset_name = str(getattr(preset, "name", "") or "").strip()
         try:
-            selected_name = str(self.get_active_preset_name() or "").strip()
+            selected_name = str(getattr(self.get_active_preset(), "name", "") or "").strip()
         except Exception:
             selected_name = ""
 
         if preset_name and selected_name and preset_name.lower() == selected_name.lower():
             try:
-                from core.services import get_direct_flow_coordinator
-
-                get_direct_flow_coordinator().refresh_selected_runtime("direct_zapret1")
+                self._invalidate_active_preset_cache()
                 return True
             except PermissionError:
                 raise
             except Exception as e:
-                log(f"Error refreshing V1 generated launch config from selected source preset: {e}", "ERROR")
+                log(f"Error updating selected V1 source preset state: {e}", "ERROR")
                 return False
 
         return self._get_sync_layer().sync_preset(preset)
@@ -349,7 +359,7 @@ class PresetManagerV1:
             do_sync = bool(sync_active_file)
             if do_sync and not make_active:
                 try:
-                    current_active = (self.get_active_preset_name() or "").strip().lower()
+                    current_active = str(getattr(self.get_active_preset(), "name", "") or "").strip().lower()
                 except Exception:
                     current_active = ""
                 if current_active != name.lower():
@@ -361,17 +371,18 @@ class PresetManagerV1:
 
             if do_sync:
                 try:
-                    preset = self.load_preset(name)
+                    document = self._get_facade().get_document(name)
+                    preset = self.load_preset_by_file_name(document.manifest.file_name) if document is not None else None
                     if preset is None:
                         log(f"Cannot sync reset V1 preset '{name}': failed to reload source preset", "ERROR")
                         return False
                     if not self.sync_preset_to_active_file(preset):
                         return False
                 except PermissionError as e:
-                    log(f"Cannot write V1 generated launch config (locked?): {e}", "ERROR")
+                    log(f"Cannot write selected V1 source preset (locked?): {e}", "ERROR")
                     raise
                 except Exception as e:
-                    log(f"Error syncing reset V1 preset '{name}' to generated launch config: {e}", "ERROR")
+                    log(f"Error saving reset V1 preset '{name}' into selected source preset: {e}", "ERROR")
                     return False
 
             if make_active:
@@ -396,7 +407,7 @@ class PresetManagerV1:
 
     def reset_active_preset_to_default_template(self) -> bool:
         """Resets currently active V1 preset to its matching template."""
-        active_name = (self.get_active_preset_name() or "").strip()
+        active_name = str(getattr(self.get_active_preset(), "name", "") or "").strip()
         if not active_name:
             return False
         return self.reset_preset_to_default_template(
@@ -427,30 +438,29 @@ class PresetManagerV1:
             except Exception:
                 pass
 
-            names = sorted(self.list_presets(), key=lambda s: s.lower())
-            if not names:
+            file_names = sorted(self.list_preset_file_names(), key=lambda s: s.lower())
+            if not file_names:
                 return (success_count, total_count, failed)
 
-            name_by_key = {name.lower(): name for name in names}
-            original_active = (self.get_active_preset_name() or "").strip()
-            active_name = name_by_key.get(original_active.lower(), "") if original_active else ""
-            if not active_name:
-                active_name = name_by_key.get("default", "") or names[0]
+            original_active_file_name = (self.get_active_preset_file_name() or "").strip()
+            active_file_name = original_active_file_name if original_active_file_name in file_names else ""
+            if not active_file_name:
+                active_file_name = "Default.txt" if "Default.txt" in file_names else file_names[0]
 
-            if active_name:
+            if active_file_name:
                 try:
                     from core.services import get_direct_flow_coordinator
 
-                    profile = get_direct_flow_coordinator().select_preset("direct_zapret1", active_name)
+                    profile = get_direct_flow_coordinator().select_preset_file_name("direct_zapret1", active_file_name)
                     self._invalidate_active_preset_cache()
-                    self._get_store().notify_preset_switched(profile.preset_name)
+                    self._get_store().notify_preset_switched(profile.preset_file_name)
                     if self.on_preset_switched:
                         try:
                             self.on_preset_switched(profile.preset_name)
                         except Exception:
                             pass
                 except Exception as e:
-                    log(f"V1 bulk reset: failed to re-apply selected preset '{active_name}': {e}", "WARNING")
+                    log(f"V1 bulk reset: failed to re-apply selected preset '{active_file_name}': {e}", "WARNING")
 
             return (success_count, total_count, failed)
         except Exception as e:

@@ -1593,20 +1593,20 @@ class DpiSettingsPage(BasePage):
     def _load_filter_settings(self):
         """Загружает настройки фильтров"""
         try:
-            from strategy_menu import (
-                get_wssize_enabled, set_wssize_enabled,
-                get_debug_log_enabled, set_debug_log_enabled
-            )
+            getter_wssize = self._get_filter_state_getter("wssize")
+            getter_debug = self._get_filter_state_getter("debug")
+            setter_wssize = self._get_filter_state_setter("wssize")
+            setter_debug = self._get_filter_state_setter("debug")
 
             # ═══════════════════════════════════════════════════════════════════════
             # ДОПОЛНИТЕЛЬНЫЕ НАСТРОЙКИ — остаются активными
             # ═══════════════════════════════════════════════════════════════════════
-            self.wssize_toggle.setChecked(get_wssize_enabled(), block_signals=True)
-            self.debug_log_toggle.setChecked(get_debug_log_enabled(), block_signals=True)
+            self.wssize_toggle.setChecked(bool(getter_wssize()), block_signals=True)
+            self.debug_log_toggle.setChecked(bool(getter_debug()), block_signals=True)
 
             # Подключаем сигналы только для дополнительных настроек
-            self.wssize_toggle.toggled.connect(lambda v: self._on_filter_changed(set_wssize_enabled, v))
-            self.debug_log_toggle.toggled.connect(lambda v: self._on_filter_changed(set_debug_log_enabled, v))
+            self.wssize_toggle.toggled.connect(lambda v: self._on_filter_changed(setter_wssize, v))
+            self.debug_log_toggle.toggled.connect(lambda v: self._on_filter_changed(setter_debug, v))
 
         except Exception as e:
             log(f"Ошибка загрузки фильтров: {e}", "WARNING")
@@ -1625,19 +1625,52 @@ class DpiSettingsPage(BasePage):
         """Обработчик изменения фильтра"""
         setter_func(value)
 
-        # Для direct_zapret2 физически пишем --debug в runtime config выбранного пресета,
-        # чтобы winws2 получал его из @file (а не только из CLI).
-        try:
-            if getattr(setter_func, "__name__", "") == "set_debug_log_enabled":
-                from strategy_menu import get_strategy_launch_method
-                if get_strategy_launch_method() == "direct_zapret2":
-                    from core.services import get_direct_flow_coordinator
-
-                    get_direct_flow_coordinator().refresh_selected_runtime("direct_zapret2")
-        except Exception as e:
-            log(f"Ошибка обновления runtime config для --debug: {e}", "DEBUG")
-
         self.filters_changed.emit()
+
+    def _get_direct_toggle_facade(self):
+        try:
+            from strategy_menu import get_strategy_launch_method
+
+            method = (get_strategy_launch_method() or "").strip().lower()
+            if method in ("direct_zapret2", "direct_zapret1"):
+                from core.presets.direct_facade import DirectPresetFacade
+
+                return DirectPresetFacade.from_launch_method(method)
+        except Exception:
+            pass
+        return None
+
+    def _get_filter_state_getter(self, kind: str):
+        facade = self._get_direct_toggle_facade()
+        if facade is not None:
+            if kind == "wssize":
+                return facade.get_wssize_enabled
+            return facade.get_debug_log_enabled
+
+        if kind == "wssize":
+            from strategy_menu import get_wssize_enabled
+
+            return get_wssize_enabled
+
+        from strategy_menu import get_debug_log_enabled
+
+        return get_debug_log_enabled
+
+    def _get_filter_state_setter(self, kind: str):
+        facade = self._get_direct_toggle_facade()
+        if facade is not None:
+            if kind == "wssize":
+                return lambda value: facade.set_wssize_enabled(bool(value))
+            return lambda value: facade.set_debug_log_enabled(bool(value))
+
+        if kind == "wssize":
+            from strategy_menu import set_wssize_enabled
+
+            return set_wssize_enabled
+
+        from strategy_menu import set_debug_log_enabled
+
+        return set_debug_log_enabled
         
     def _update_filters_visibility(self):
         """Обновляет видимость фильтров и секций"""
@@ -1654,13 +1687,11 @@ class DpiSettingsPage(BasePage):
             self.advanced_card.setVisible(is_direct_mode and method != "direct_zapret2")
 
             # If we just made the advanced section visible again, re-sync its state
-            # from registry (without reconnecting signals).
+            # from the current mode source of truth (preset for direct preset flow).
             if is_direct_mode and method != "direct_zapret2":
                 try:
-                    from strategy_menu import get_wssize_enabled, get_debug_log_enabled
-
-                    self.wssize_toggle.setChecked(bool(get_wssize_enabled()), block_signals=True)
-                    self.debug_log_toggle.setChecked(bool(get_debug_log_enabled()), block_signals=True)
+                    self.wssize_toggle.setChecked(bool(self._get_filter_state_getter("wssize")()), block_signals=True)
+                    self.debug_log_toggle.setChecked(bool(self._get_filter_state_getter("debug")()), block_signals=True)
                 except Exception:
                     pass
 

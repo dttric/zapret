@@ -8,7 +8,6 @@ from pathlib import Path
 import re
 import tempfile
 from typing import Iterable
-from uuid import uuid4
 import zipfile
 
 from core.paths import AppPaths
@@ -20,15 +19,6 @@ _PRESET_HEADER_RE = re.compile(r"^\s*#\s*Preset:\s*(.+?)\s*$", re.IGNORECASE | r
 
 def _now_iso() -> str:
     return datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
-
-
-def _new_preset_id() -> str:
-    try:
-        from uuid import uuid7  # type: ignore[attr-defined]
-
-        return str(uuid7())
-    except Exception:
-        return str(uuid4())
 
 
 def _sanitize_file_stem(value: str) -> str:
@@ -51,11 +41,14 @@ class PresetRepository:
     def list_presets(self, engine: str) -> list[PresetDocument]:
         manifests = self._load_index(engine)
         docs = [self._load_document(engine, manifest) for manifest in manifests]
-        return sorted(docs, key=lambda item: item.manifest.name.lower())
+        return sorted(docs, key=lambda item: (item.manifest.name.lower(), item.manifest.file_name.lower()))
 
-    def get_preset(self, engine: str, preset_id: str) -> PresetDocument | None:
+    def get_preset(self, engine: str, file_name: str) -> PresetDocument | None:
+        target = str(file_name or "").strip().lower()
+        if not target:
+            return None
         for manifest in self._load_index(engine):
-            if manifest.id == preset_id:
+            if manifest.file_name.strip().lower() == target:
                 return self._load_document(engine, manifest)
         return None
 
@@ -63,9 +56,23 @@ class PresetRepository:
         target = str(name or "").strip().lower()
         if not target:
             return None
+        matches = [
+            manifest
+            for manifest in self._load_index(engine)
+            if manifest.name.strip().lower() == target
+        ]
+        if not matches:
+            return None
+        matches.sort(key=lambda item: item.file_name.lower())
+        return self._load_document(engine, matches[0])
+
+    def resolve_legacy_id(self, engine: str, legacy_id: str) -> str | None:
+        target = str(legacy_id or "").strip()
+        if not target:
+            return None
         for manifest in self._load_index(engine):
-            if manifest.name.strip().lower() == target:
-                return self._load_document(engine, manifest)
+            if str(manifest.legacy_id or "").strip() == target:
+                return manifest.file_name
         return None
 
     def create_preset(
@@ -78,15 +85,16 @@ class PresetRepository:
     ) -> PresetDocument:
         engine_paths = self._engine_paths(engine)
         manifests = self._load_index(engine)
-        normalized_name = self._validate_new_name(manifests, name)
+        normalized_name = str(name or "").strip()
+        if not normalized_name:
+            raise ValueError("Preset name is required")
         created_at = _now_iso()
-        preset_id = self._unique_id(manifests)
         file_name = self._unique_file_name(engine_paths.presets_dir, normalized_name)
         normalized_kind = str(kind or "user").strip() or "user"
+        display_name = self._extract_name(source_text, Path(file_name).stem)
         manifest = PresetManifest(
-            id=preset_id,
-            name=normalized_name,
             file_name=file_name,
+            name=display_name,
             created_at=created_at,
             updated_at=created_at,
             kind=normalized_kind,
@@ -99,32 +107,35 @@ class PresetRepository:
     def update_preset(
         self,
         engine: str,
-        preset_id: str,
+        file_name: str,
         source_text: str,
         name: str | None,
     ) -> PresetDocument:
+        _ = name
         manifests = self._load_index(engine)
-        idx = self._find_index(manifests, preset_id)
+        idx = self._find_index(manifests, file_name)
         current = manifests[idx]
-        next_name = current.name if name is None else self._validate_new_name(manifests, name, exclude_id=preset_id)
+        next_name = self._extract_name(source_text, Path(current.file_name).stem)
         updated = PresetManifest(
-            id=current.id,
-            name=next_name,
             file_name=current.file_name,
+            name=next_name,
             created_at=current.created_at,
             updated_at=_now_iso(),
             kind=current.kind,
+            legacy_id=current.legacy_id,
         )
         manifests[idx] = updated
         self._write_source(self._engine_paths(engine).presets_dir / updated.file_name, source_text)
         self._save_index(engine, manifests)
         return self._load_document(engine, updated)
 
-    def rename_preset(self, engine: str, preset_id: str, new_name: str) -> PresetDocument:
+    def rename_preset(self, engine: str, file_name: str, new_name: str) -> PresetDocument:
         manifests = self._load_index(engine)
-        idx = self._find_index(manifests, preset_id)
+        idx = self._find_index(manifests, file_name)
         current = manifests[idx]
-        normalized_name = self._validate_new_name(manifests, new_name, exclude_id=preset_id)
+        normalized_name = str(new_name or "").strip()
+        if not normalized_name:
+            raise ValueError("Preset name is required")
         engine_paths = self._engine_paths(engine)
         src_path = engine_paths.presets_dir / current.file_name
         target_file_name = self._unique_file_name(
@@ -135,21 +146,22 @@ class PresetRepository:
         target_path = engine_paths.presets_dir / target_file_name
         if src_path.exists() and src_path != target_path:
             src_path.rename(target_path)
+        source_text = _read_text(target_path) if target_path.exists() else ""
         updated = PresetManifest(
-            id=current.id,
-            name=normalized_name,
             file_name=target_file_name,
+            name=self._extract_name(source_text, Path(target_file_name).stem),
             created_at=current.created_at,
             updated_at=_now_iso(),
             kind=current.kind,
+            legacy_id=current.legacy_id,
         )
         manifests[idx] = updated
         self._save_index(engine, manifests)
         return self._load_document(engine, updated)
 
-    def delete_preset(self, engine: str, preset_id: str) -> None:
+    def delete_preset(self, engine: str, file_name: str) -> None:
         manifests = self._load_index(engine)
-        idx = self._find_index(manifests, preset_id)
+        idx = self._find_index(manifests, file_name)
         manifest = manifests.pop(idx)
         preset_path = self._engine_paths(engine).presets_dir / manifest.file_name
         try:
@@ -158,10 +170,10 @@ class PresetRepository:
             pass
         self._save_index(engine, manifests)
 
-    def export_preset(self, engine: str, preset_id: str, dest_path: Path) -> None:
-        preset = self.get_preset(engine, preset_id)
+    def export_preset(self, engine: str, file_name: str, dest_path: Path) -> None:
+        preset = self.get_preset(engine, file_name)
         if preset is None:
-            raise ValueError(f"Preset not found: {preset_id}")
+            raise ValueError(f"Preset not found: {file_name}")
         dest_path = Path(dest_path)
         dest_path.parent.mkdir(parents=True, exist_ok=True)
         with zipfile.ZipFile(dest_path, "w", compression=zipfile.ZIP_DEFLATED) as zf:
@@ -174,9 +186,9 @@ class PresetRepository:
             manifest_data = json.loads(zf.read("manifest.json").decode("utf-8"))
             source_text = zf.read("preset.txt").decode("utf-8")
 
-        requested_name = str(manifest_data.get("name") or "Imported").strip() or "Imported"
-        unique_name = self._unique_name(engine, requested_name)
-        return self.create_preset(engine, unique_name, source_text, kind="imported")
+        requested_file_stem = Path(str(manifest_data.get("file_name") or "").strip()).stem
+        requested_name = requested_file_stem or str(manifest_data.get("name") or "Imported").strip() or "Imported"
+        return self.create_preset(engine, requested_name, source_text, kind="imported")
 
     def _engine_paths(self, engine: str):
         return self._paths.engine_paths(engine).ensure_directories()
@@ -190,7 +202,7 @@ class PresetRepository:
         if not path.exists():
             return []
         data = json.loads(_read_text(path) or "[]")
-        manifests = [PresetManifest(**item) for item in data]
+        manifests = [self._manifest_from_raw(item) for item in data if isinstance(item, dict)]
         return manifests
 
     def _bootstrap_index(self, engine: str) -> None:
@@ -208,44 +220,31 @@ class PresetRepository:
             except json.JSONDecodeError as exc:
                 raise RuntimeError(f"Invalid preset index JSON: {path}") from exc
 
-        manifests_by_file = {}
-        used_ids: set[str] = set()
+        manifests_by_file: dict[str, PresetManifest] = {}
         for raw in existing_data:
-            file_name = str(raw.get("file_name") or "").strip()
-            if not file_name:
+            manifest = self._manifest_from_raw(raw)
+            if not manifest.file_name:
                 continue
-            preset_id = str(raw.get("id") or "").strip() or _new_preset_id()
-            while preset_id in used_ids:
-                preset_id = _new_preset_id()
-            used_ids.add(preset_id)
-            manifests_by_file[file_name.lower()] = PresetManifest(
-                id=preset_id,
-                name=str(raw.get("name") or "").strip() or Path(file_name).stem,
-                file_name=file_name,
-                created_at=str(raw.get("created_at") or _now_iso()),
-                updated_at=str(raw.get("updated_at") or raw.get("created_at") or _now_iso()),
-                kind=str(raw.get("kind") or "user"),
-            )
+            manifests_by_file[manifest.file_name.lower()] = manifest
 
         manifests: list[PresetManifest] = []
-        used_names: set[str] = set()
         for preset_path in sorted(engine_paths.presets_dir.glob("*.txt"), key=lambda p: p.name.lower()):
             current = manifests_by_file.get(preset_path.name.lower())
             source_text = _read_text(preset_path)
-            extracted_name = self._extract_name(source_text, preset_path.stem)
-            display_name = extracted_name
-            if current is not None:
-                display_name = current.name or extracted_name
-            display_name = self._dedupe_name(display_name, used_names)
+            display_name = self._extract_name(source_text, preset_path.stem)
+            created_at = current.created_at if current is not None else _now_iso()
+            updated_at = current.updated_at if current is not None else created_at
+            kind = current.kind if current is not None else "user"
+            legacy_id = current.legacy_id if current is not None else None
 
             manifests.append(
                 PresetManifest(
-                    id=current.id if current is not None else self._unique_id(manifests),
-                    name=display_name,
                     file_name=preset_path.name,
-                    created_at=current.created_at if current is not None else _now_iso(),
-                    updated_at=_now_iso(),
-                    kind=current.kind if current is not None else "user",
+                    name=display_name,
+                    created_at=created_at,
+                    updated_at=updated_at,
+                    kind=kind,
+                    legacy_id=legacy_id,
                 )
             )
 
@@ -270,11 +269,29 @@ class PresetRepository:
         payload = [asdict(item) for item in manifests]
         self._atomic_write_json(path, payload)
 
-    def _find_index(self, manifests: list[PresetManifest], preset_id: str) -> int:
+    def _find_index(self, manifests: list[PresetManifest], file_name: str) -> int:
+        target = str(file_name or "").strip().lower()
         for idx, manifest in enumerate(manifests):
-            if manifest.id == preset_id:
+            if manifest.file_name.strip().lower() == target:
                 return idx
-        raise ValueError(f"Preset not found: {preset_id}")
+        raise ValueError(f"Preset not found: {file_name}")
+
+    @staticmethod
+    def _manifest_from_raw(raw: dict) -> PresetManifest:
+        file_name = str(raw.get("file_name") or "").strip()
+        display_name = str(raw.get("name") or "").strip() or Path(file_name).stem or "Preset"
+        created_at = str(raw.get("created_at") or _now_iso())
+        updated_at = str(raw.get("updated_at") or raw.get("created_at") or created_at)
+        kind = str(raw.get("kind") or "user").strip() or "user"
+        legacy_id = str(raw.get("legacy_id") or raw.get("id") or "").strip() or None
+        return PresetManifest(
+            file_name=file_name,
+            name=display_name,
+            created_at=created_at,
+            updated_at=updated_at,
+            kind=kind,
+            legacy_id=legacy_id,
+        )
 
     @staticmethod
     def _atomic_write_json(path: Path, payload) -> None:
@@ -317,46 +334,6 @@ class PresetRepository:
                 Path(tmp_name).unlink()
             except FileNotFoundError:
                 pass
-
-    def _validate_new_name(
-        self,
-        manifests: list[PresetManifest],
-        name: str,
-        *,
-        exclude_id: str | None = None,
-    ) -> str:
-        normalized_name = str(name or "").strip()
-        if not normalized_name:
-            raise ValueError("Preset name is required")
-        lowered = normalized_name.lower()
-        for manifest in manifests:
-            if exclude_id is not None and manifest.id == exclude_id:
-                continue
-            if manifest.name.lower() == lowered:
-                raise ValueError(f"Preset name already exists: {normalized_name}")
-        return normalized_name
-
-    def _unique_id(self, manifests: list[PresetManifest]) -> str:
-        used = {item.id for item in manifests}
-        preset_id = _new_preset_id()
-        while preset_id in used:
-            preset_id = _new_preset_id()
-        return preset_id
-
-    @staticmethod
-    def _dedupe_name(name: str, used_names: set[str]) -> str:
-        base = str(name or "").strip() or "Preset"
-        candidate = base
-        counter = 2
-        while candidate.lower() in used_names:
-            candidate = f"{base} ({counter})"
-            counter += 1
-        used_names.add(candidate.lower())
-        return candidate
-
-    def _unique_name(self, engine: str, name: str) -> str:
-        used_names = {item.manifest.name.lower() for item in self.list_presets(engine)}
-        return self._dedupe_name(name, used_names)
 
     @staticmethod
     def _unique_file_name(

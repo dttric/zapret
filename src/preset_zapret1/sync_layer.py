@@ -99,7 +99,7 @@ class Zapret1PresetSyncLayer:
             success = generate_preset_file(data, active_path, atomic=True)
             if success:
                 self._invalidate_cache()
-                log("Synced V1 preset to generated launch config", "DEBUG")
+                log("Saved V1 preset into selected source preset", "DEBUG")
                 if self._on_dpi_reload_needed:
                     self._on_dpi_reload_needed()
             return success
@@ -107,7 +107,7 @@ class Zapret1PresetSyncLayer:
             log(f"Cannot write V1 preset file: {e}", "ERROR")
             raise
         except Exception as e:
-            log(f"Error syncing V1 preset to generated launch config: {e}", "ERROR")
+            log(f"Error saving V1 preset into selected source preset: {e}", "ERROR")
             return False
 
     def infer_active_categories_from_launch_config(self) -> set[str]:
@@ -184,7 +184,7 @@ class Zapret1PresetSyncLayer:
                 mirror_selected_source=True,
             )
         except PermissionError as e:
-            log(f"Cannot write V1 generated launch config (locked?): {e}", "ERROR")
+            log(f"Cannot write selected V1 source preset (locked?): {e}", "ERROR")
             raise
         except Exception as e:
             log(f"Error syncing single V1 category '{category_key}': {e}", "ERROR")
@@ -214,10 +214,10 @@ class Zapret1PresetSyncLayer:
                 self._on_dpi_reload_needed()
             return True
         except PermissionError as e:
-            log(f"Cannot write V1 generated launch config (locked?): {e}", "ERROR")
+            log(f"Cannot write selected V1 source preset (locked?): {e}", "ERROR")
             raise
         except Exception as e:
-            log(f"Error writing V1 generated launch config: {e}", "ERROR")
+            log(f"Error writing selected V1 source preset: {e}", "ERROR")
             return False
 
     @staticmethod

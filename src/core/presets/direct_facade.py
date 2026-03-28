@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
+import re
 from typing import Callable, Optional
 
 from core.services import get_app_paths, get_direct_flow_coordinator, get_preset_repository, get_selection_service
@@ -106,6 +107,175 @@ def _drop_active_preset_headers(source_text: str) -> str:
     text = (source_text or "").replace("\r\n", "\n").replace("\r", "\n")
     lines = [line for line in text.splitlines() if not line.strip().lower().startswith("# activepreset:")]
     return "\n".join(lines).rstrip("\n") + "\n"
+
+
+def _extract_debug_log_file(source_text: str) -> str:
+    text = (source_text or "").replace("\r\n", "\n").replace("\r", "\n")
+    for raw in text.splitlines():
+        stripped = raw.strip()
+        if not stripped.lower().startswith("--debug="):
+            continue
+        value = stripped.split("=", 1)[1].strip() if "=" in stripped else ""
+        value = value.lstrip("@").replace("\\", "/").lstrip("/")
+        return value
+    return ""
+
+
+def _build_stable_debug_log_file(preset_name: str) -> str:
+    safe_name = re.sub(r"[^\w.-]+", "_", str(preset_name or "").strip(), flags=re.UNICODE).strip("._")
+    if not safe_name:
+        safe_name = "preset"
+    return f"logs/{safe_name}_debug.log"
+
+
+def _default_debug_insert_index(lines: list[str]) -> int:
+    insert_at = 0
+    for idx, raw in enumerate(lines):
+        stripped = raw.strip()
+        if stripped.startswith("--lua-init="):
+            insert_at = idx + 1
+    if insert_at:
+        return insert_at
+
+    header_end = 0
+    for idx, raw in enumerate(lines):
+        stripped = raw.strip()
+        if stripped.startswith("#") or not stripped:
+            header_end = idx + 1
+            continue
+        break
+    return header_end
+
+
+def _rewrite_debug_log_setting(source_text: str, preset_name: str, enabled: bool) -> str:
+    text = (source_text or "").replace("\r\n", "\n").replace("\r", "\n")
+    lines = text.splitlines()
+
+    existing_value = ""
+    existing_insert_at: int | None = None
+    cleaned: list[str] = []
+    for raw in lines:
+        stripped = raw.strip()
+        if stripped.lower().startswith("--debug="):
+            if not existing_value:
+                existing_value = stripped.split("=", 1)[1].strip() if "=" in stripped else ""
+                existing_value = existing_value.lstrip("@").replace("\\", "/").lstrip("/")
+                existing_insert_at = len(cleaned)
+            continue
+        cleaned.append(raw)
+
+    if enabled:
+        debug_file = existing_value or _build_stable_debug_log_file(preset_name)
+        debug_line = f"--debug=@{debug_file}"
+        insert_at = existing_insert_at if existing_insert_at is not None else _default_debug_insert_index(cleaned)
+        if insert_at < 0:
+            insert_at = 0
+        if insert_at > len(cleaned):
+            insert_at = len(cleaned)
+        cleaned.insert(insert_at, debug_line)
+
+    return "\n".join(cleaned).rstrip("\n") + "\n"
+
+
+_V1_WSSIZE_FLAG = "--wssize"
+_V1_WSSIZE_VALUE = "1:6"
+_V1_WSSIZE_COMBINED = "--wssize=1:6"
+_V1_WSSIZE_CUTOFF = "--wssize-forced-cutoff=0"
+_V2_WSSIZE_LINE = "--lua-desync=wssize:wsize=1:scale=6"
+
+
+def _ports_include_443(value: str) -> bool:
+    for raw_part in str(value or "").split(","):
+        part = raw_part.strip()
+        if not part:
+            continue
+        if "-" in part:
+            try:
+                start_s, end_s = part.split("-", 1)
+                start = int(start_s.strip())
+                end = int(end_s.strip())
+            except Exception:
+                continue
+            if start <= 443 <= end:
+                return True
+            continue
+        try:
+            if int(part) == 443:
+                return True
+        except Exception:
+            continue
+    return False
+
+
+def _category_has_tcp_443(category_key: str, category) -> bool:
+    try:
+        from preset_zapret2.base_filter import build_category_base_filter_lines
+
+        for token in build_category_base_filter_lines(category_key, getattr(category, "filter_mode", "")):
+            stripped = str(token or "").strip()
+            if stripped.startswith("--filter-tcp="):
+                return _ports_include_443(stripped.split("=", 1)[1].strip())
+    except Exception:
+        pass
+
+    return _ports_include_443(getattr(category, "tcp_port", "") or "")
+
+
+def _split_arg_lines(args_text: str) -> list[str]:
+    return [str(raw or "").strip() for raw in str(args_text or "").splitlines() if str(raw or "").strip()]
+
+
+def _join_arg_lines(lines: list[str]) -> str:
+    return "\n".join(str(line or "").strip() for line in lines if str(line or "").strip()).strip()
+
+
+def _v1_wssize_enabled_from_args(args_text: str) -> bool:
+    lines = _split_arg_lines(args_text)
+    for idx, line in enumerate(lines):
+        lowered = line.lower()
+        if lowered == _V1_WSSIZE_COMBINED:
+            return True
+        if lowered == _V1_WSSIZE_FLAG and idx + 1 < len(lines) and lines[idx + 1].strip() == _V1_WSSIZE_VALUE:
+            return True
+    return False
+
+
+def _rewrite_v1_wssize_args(args_text: str, enabled: bool) -> str:
+    lines = _split_arg_lines(args_text)
+    cleaned: list[str] = []
+    idx = 0
+    while idx < len(lines):
+        lowered = lines[idx].strip().lower()
+        if lowered == _V1_WSSIZE_COMBINED:
+            idx += 1
+            continue
+        if lowered == _V1_WSSIZE_FLAG:
+            if idx + 1 < len(lines) and lines[idx + 1].strip() == _V1_WSSIZE_VALUE:
+                idx += 2
+                if idx < len(lines) and lines[idx].strip().lower() == _V1_WSSIZE_CUTOFF:
+                    idx += 1
+                continue
+        if lowered == _V1_WSSIZE_CUTOFF:
+            idx += 1
+            continue
+        cleaned.append(lines[idx])
+        idx += 1
+
+    if enabled and not _v1_wssize_enabled_from_args(_join_arg_lines(cleaned)):
+        cleaned.extend([_V1_WSSIZE_FLAG, _V1_WSSIZE_VALUE, _V1_WSSIZE_CUTOFF])
+
+    return _join_arg_lines(cleaned)
+
+
+def _v2_wssize_enabled_from_args(args_text: str) -> bool:
+    return any(line.strip().lower() == _V2_WSSIZE_LINE for line in _split_arg_lines(args_text))
+
+
+def _rewrite_v2_wssize_args(args_text: str, enabled: bool) -> str:
+    lines = [line for line in _split_arg_lines(args_text) if line.strip().lower() != _V2_WSSIZE_LINE]
+    if enabled and not any(line.strip().lower() == _V2_WSSIZE_LINE for line in lines):
+        lines.insert(0, _V2_WSSIZE_LINE)
+    return _join_arg_lines(lines)
 
 
 def _apply_zapret2_strategy_args(preset, category_key: str, strategy_id: str) -> None:
@@ -287,8 +457,12 @@ class DirectPresetFacade:
         raise ValueError(f"Unsupported launch method for direct preset facade: {launch_method}")
 
     def _load_selected_preset_model(self):
-        selected_name = (self.get_selected_name() or "").strip()
-        if not selected_name:
+        selected_document = self.get_selected_document()
+        if selected_document is None:
+            return None
+        selected_file_name = str(selected_document.manifest.file_name or "").strip()
+        selected_stem = Path(selected_file_name).stem
+        if not selected_stem:
             return None
 
         if self.launch_method == "direct_zapret2":
@@ -300,14 +474,25 @@ class DirectPresetFacade:
             except Exception:
                 ui_mode = "basic"
 
-            preset = load_preset(selected_name)
+            preset = load_preset(selected_stem)
             if preset is None:
                 return None
+            try:
+                setattr(preset, "_source_file_name", selected_file_name)
+            except Exception:
+                pass
             return project_preset_for_direct_ui_mode(preset, ui_mode)
 
         from preset_zapret1 import load_preset_v1
 
-        return load_preset_v1(selected_name)
+        preset = load_preset_v1(selected_stem)
+        if preset is None:
+            return None
+        try:
+            setattr(preset, "_source_file_name", selected_file_name)
+        except Exception:
+            pass
+        return preset
 
     def list_presets(self) -> list[PresetDocument]:
         return get_preset_repository().list_presets(self.engine)
@@ -315,12 +500,22 @@ class DirectPresetFacade:
     def list_names(self) -> list[str]:
         return [item.manifest.name for item in self.list_presets()]
 
+    def list_file_names(self) -> list[str]:
+        return [item.manifest.file_name for item in self.list_presets()]
+
     def exists(self, name: str) -> bool:
-        return self.get_document(name) is not None
+        return bool(self.get_documents_by_name(name))
+
+    def exists_file_name(self, file_name: str) -> bool:
+        return self.get_document_by_file_name(file_name) is not None
 
     def get_selected_name(self) -> str:
-        preset = get_selection_service().ensure_selected_preset(self.engine, "Default")
+        preset = get_selection_service().ensure_selected_preset(self.engine, "Default.txt")
         return preset.manifest.name if preset is not None else ""
+
+    def get_selected_file_name(self) -> str:
+        preset = get_selection_service().ensure_selected_preset(self.engine, "Default.txt")
+        return preset.manifest.file_name if preset is not None else ""
 
     def get_selected_document(self) -> PresetDocument | None:
         return get_direct_flow_coordinator().get_selected_source_preset(self.launch_method)
@@ -328,11 +523,36 @@ class DirectPresetFacade:
     def is_selected(self, name: str) -> bool:
         return (self.get_selected_name() or "").strip().lower() == str(name or "").strip().lower()
 
+    def is_selected_file_name(self, file_name: str) -> bool:
+        return (self.get_selected_file_name() or "").strip().lower() == str(file_name or "").strip().lower()
+
+    def get_documents_by_name(self, name: str) -> list[PresetDocument]:
+        target = str(name or "").strip().lower()
+        if not target:
+            return []
+        matches = [
+            item for item in self.list_presets()
+            if str(item.manifest.name or "").strip().lower() == target
+        ]
+        matches.sort(key=lambda item: item.manifest.file_name.lower())
+        return matches
+
     def get_document(self, name: str) -> PresetDocument | None:
-        return get_preset_repository().find_preset_by_name(self.engine, name)
+        matches = self.get_documents_by_name(name)
+        if not matches:
+            return None
+        if len(matches) > 1:
+            raise ValueError(f"Multiple presets share the same display name: {name}")
+        return matches[0]
+
+    def get_document_by_file_name(self, file_name: str) -> PresetDocument | None:
+        return get_preset_repository().get_preset(self.engine, file_name)
 
     def get_preset_origin(self, name: str) -> str:
-        document = self.get_document(name)
+        try:
+            document = self.get_document(name)
+        except ValueError:
+            document = None
         if document is not None:
             kind = str(document.manifest.kind or "").strip().lower()
             if kind in {"builtin", "imported", "user"}:
@@ -342,8 +562,6 @@ class DirectPresetFacade:
                     return "imported"
                 return "user"
 
-        if self.is_builtin_name(name):
-            return "builtin"
         return "user"
 
     def _hierarchy_scope_key(self) -> str:
@@ -358,21 +576,45 @@ class DirectPresetFacade:
 
         return PresetHierarchyStore(self._hierarchy_scope_key())
 
-    def _rename_library_meta(self, old_name: str, new_name: str) -> None:
+    def _rename_library_meta(
+        self,
+        old_file_name: str,
+        new_file_name: str,
+        *,
+        old_display_name: str,
+        new_display_name: str,
+    ) -> None:
         try:
-            self._get_hierarchy_store().rename_preset_meta(old_name, new_name)
+            self._get_hierarchy_store().rename_preset_meta(
+                old_file_name,
+                new_file_name,
+                old_display_name=old_display_name,
+                new_display_name=new_display_name,
+            )
         except Exception:
             pass
 
-    def _copy_library_meta(self, source_name: str, new_name: str) -> None:
+    def _copy_library_meta(
+        self,
+        source_file_name: str,
+        new_file_name: str,
+        *,
+        source_display_name: str,
+        new_display_name: str,
+    ) -> None:
         try:
-            self._get_hierarchy_store().copy_preset_meta_to_new(source_name, new_name)
+            self._get_hierarchy_store().copy_preset_meta_to_new(
+                source_file_name,
+                new_file_name,
+                source_display_name=source_display_name,
+                new_display_name=new_display_name,
+            )
         except Exception:
             pass
 
-    def _delete_library_meta(self, preset_name: str) -> None:
+    def _delete_library_meta(self, preset_file_name: str, *, display_name: str) -> None:
         try:
-            self._get_hierarchy_store().delete_preset_meta(preset_name)
+            self._get_hierarchy_store().delete_preset_meta(preset_file_name, display_name=display_name)
         except Exception:
             pass
 
@@ -381,25 +623,14 @@ class DirectPresetFacade:
         if not candidate:
             return False
 
-        document = self.get_document(candidate)
+        try:
+            document = self.get_document(candidate)
+        except ValueError:
+            document = None
         if document is not None:
             kind = str(document.manifest.kind or "").strip().lower()
             if kind == "builtin":
                 return True
-            if kind == "imported":
-                return False
-
-        if self.launch_method == "direct_zapret2":
-            from preset_zapret2.preset_defaults import get_template_canonical_name
-
-            canonical = get_template_canonical_name(candidate)
-            return bool(canonical and canonical.casefold() == candidate.casefold())
-
-        if self.launch_method == "direct_zapret1":
-            from preset_zapret1.preset_defaults import get_template_canonical_name_v1
-
-            canonical = get_template_canonical_name_v1(candidate)
-            return bool(canonical and canonical.casefold() == candidate.casefold())
 
         return False
 
@@ -409,30 +640,142 @@ class DirectPresetFacade:
             raise ValueError(f"Preset not found: {name}")
         return get_app_paths().engine_paths(self.engine).ensure_directories().presets_dir / document.manifest.file_name
 
+    def get_source_path_by_file_name(self, file_name: str) -> Path:
+        document = self.get_document_by_file_name(file_name)
+        if document is None:
+            raise ValueError(f"Preset not found: {file_name}")
+        return get_app_paths().engine_paths(self.engine).ensure_directories().presets_dir / document.manifest.file_name
+
     def save_source_text(self, name: str, source_text: str) -> PresetDocument:
         document = self.get_document(name)
         if document is None:
             raise ValueError(f"Preset not found: {name}")
         normalized = _drop_active_preset_headers(source_text)
-        updated = get_preset_repository().update_preset(self.engine, document.manifest.id, normalized, None)
-        if self.is_selected(updated.manifest.name):
+        updated = get_preset_repository().update_preset(self.engine, document.manifest.file_name, normalized, None)
+        if self.is_selected_file_name(updated.manifest.file_name):
             get_direct_flow_coordinator().refresh_selected_runtime(self.launch_method)
         return updated
 
-    def _refresh_selected_runtime_from_source(self) -> None:
-        selected_name = self.get_selected_name()
-        if not selected_name or self.get_document(selected_name) is None:
-            return
+    def save_source_text_by_file_name(self, file_name: str, source_text: str) -> PresetDocument:
+        document = self.get_document_by_file_name(file_name)
+        if document is None:
+            raise ValueError(f"Preset not found: {file_name}")
+        normalized = _drop_active_preset_headers(source_text)
+        updated = get_preset_repository().update_preset(self.engine, document.manifest.file_name, normalized, None)
+        if self.is_selected_file_name(updated.manifest.file_name):
+            get_direct_flow_coordinator().refresh_selected_runtime(self.launch_method)
+        return updated
+
+    def get_debug_log_file(self) -> str:
+        document = self.get_selected_document()
+        if document is None:
+            return ""
+        return _extract_debug_log_file(document.source_text)
+
+    def get_debug_log_enabled(self) -> bool:
+        return bool(self.get_debug_log_file())
+
+    def set_debug_log_enabled(self, enabled: bool) -> bool:
+        document = self.get_selected_document()
+        if document is None:
+            return False
+        display_name = str(document.manifest.name or "").strip() or Path(document.manifest.file_name).stem
+        rewritten = _rewrite_debug_log_setting(document.source_text, display_name, bool(enabled))
+        self.save_source_text_by_file_name(document.manifest.file_name, rewritten)
+        return True
+
+    def _load_selected_raw_preset_model(self):
+        selected_document = self.get_selected_document()
+        if selected_document is None:
+            return None
+        selected_file_name = str(selected_document.manifest.file_name or "").strip()
+        selected_stem = Path(selected_file_name).stem
+        if not selected_stem:
+            return None
 
         if self.launch_method == "direct_zapret2":
             from preset_zapret2 import load_preset
-            from preset_zapret2.sync_layer import sync_preset_to_runtime
 
-            preset = load_preset(selected_name)
+            preset = load_preset(selected_stem)
             if preset is None:
-                raise RuntimeError(f"Failed to reload selected preset after reset: {selected_name}")
-            if not sync_preset_to_runtime(preset, on_dpi_reload_needed=self.on_dpi_reload_needed):
-                raise RuntimeError(f"Failed to sync selected runtime after reset: {selected_name}")
+                return None
+            try:
+                setattr(preset, "_source_file_name", selected_file_name)
+            except Exception:
+                pass
+            return preset
+
+        from preset_zapret1 import load_preset_v1
+
+        preset = load_preset_v1(selected_stem)
+        if preset is None:
+            return None
+        try:
+            setattr(preset, "_source_file_name", selected_file_name)
+        except Exception:
+            pass
+        return preset
+
+    def get_wssize_enabled(self) -> bool:
+        preset = self._load_selected_raw_preset_model()
+        if not preset:
+            return False
+
+        for category_key, category in (getattr(preset, "categories", {}) or {}).items():
+            if not getattr(category, "tcp_enabled", False):
+                continue
+            if not _category_has_tcp_443(str(category_key or "").strip().lower(), category):
+                continue
+            args_text = getattr(category, "tcp_args", "") or ""
+            if self.launch_method == "direct_zapret2":
+                if _v2_wssize_enabled_from_args(args_text):
+                    return True
+            else:
+                if _v1_wssize_enabled_from_args(args_text):
+                    return True
+        return False
+
+    def set_wssize_enabled(self, enabled: bool) -> bool:
+        preset = self._load_selected_raw_preset_model()
+        if not preset:
+            return False
+
+        changed = False
+        touched_any_tcp_443 = False
+
+        for category_key, category in (getattr(preset, "categories", {}) or {}).items():
+            normalized_key = str(category_key or "").strip().lower()
+            if not normalized_key:
+                continue
+            if not getattr(category, "tcp_enabled", False):
+                continue
+            if not _category_has_tcp_443(normalized_key, category):
+                continue
+
+            touched_any_tcp_443 = True
+            current_args = getattr(category, "tcp_args", "") or ""
+            if self.launch_method == "direct_zapret2":
+                next_args = _rewrite_v2_wssize_args(current_args, bool(enabled))
+            else:
+                next_args = _rewrite_v1_wssize_args(current_args, bool(enabled))
+            if next_args != _join_arg_lines(_split_arg_lines(current_args)):
+                category.tcp_args = next_args
+                changed = True
+
+        if not touched_any_tcp_443:
+            return False if enabled else True
+        if not changed:
+            return True
+
+        try:
+            preset.touch()
+        except Exception:
+            pass
+        return bool(self.save_preset_model(preset))
+
+    def _refresh_selected_runtime_from_source(self) -> None:
+        selected_file_name = self.get_selected_file_name()
+        if not selected_file_name or self.get_document_by_file_name(selected_file_name) is None:
             return
 
         get_direct_flow_coordinator().refresh_selected_runtime(self.launch_method)
@@ -440,24 +783,60 @@ class DirectPresetFacade:
     def select(self, name: str):
         return get_direct_flow_coordinator().select_preset(self.launch_method, name)
 
+    def select_file_name(self, file_name: str):
+        return get_direct_flow_coordinator().select_preset_file_name(self.launch_method, file_name)
+
     def rename(self, old_name: str, new_name: str) -> PresetDocument:
         document = self.get_document(old_name)
         if document is None:
             raise ValueError(f"Preset not found: {old_name}")
         if self.is_builtin_name(old_name):
             raise ValueError(f"Built-in preset cannot be renamed: {old_name}")
-        was_selected = self.is_selected(old_name)
+        was_selected = self.is_selected_file_name(document.manifest.file_name)
 
-        renamed = get_preset_repository().rename_preset(self.engine, document.manifest.id, new_name)
+        renamed = get_preset_repository().rename_preset(self.engine, document.manifest.file_name, new_name)
         rewritten = _rewrite_preset_headers(
             document.source_text,
             new_name,
             modified=datetime.now().isoformat(),
         )
-        updated = get_preset_repository().update_preset(self.engine, renamed.manifest.id, rewritten, None)
-        self._rename_library_meta(old_name, updated.manifest.name)
+        updated = get_preset_repository().update_preset(self.engine, renamed.manifest.file_name, rewritten, None)
+        self._rename_library_meta(
+            document.manifest.file_name,
+            updated.manifest.file_name,
+            old_display_name=document.manifest.name,
+            new_display_name=updated.manifest.name,
+        )
 
         if was_selected:
+            get_selection_service().select_preset(self.engine, updated.manifest.file_name)
+            get_direct_flow_coordinator().refresh_selected_runtime(self.launch_method)
+        return updated
+
+    def rename_by_file_name(self, file_name: str, new_name: str) -> PresetDocument:
+        document = self.get_document_by_file_name(file_name)
+        if document is None:
+            raise ValueError(f"Preset not found: {file_name}")
+        if self.is_builtin_name(document.manifest.name):
+            raise ValueError(f"Built-in preset cannot be renamed: {document.manifest.name}")
+        was_selected = self.is_selected_file_name(document.manifest.file_name)
+
+        renamed = get_preset_repository().rename_preset(self.engine, document.manifest.file_name, new_name)
+        rewritten = _rewrite_preset_headers(
+            document.source_text,
+            new_name,
+            modified=datetime.now().isoformat(),
+        )
+        updated = get_preset_repository().update_preset(self.engine, renamed.manifest.file_name, rewritten, None)
+        self._rename_library_meta(
+            document.manifest.file_name,
+            updated.manifest.file_name,
+            old_display_name=document.manifest.name,
+            new_display_name=updated.manifest.name,
+        )
+
+        if was_selected:
+            get_selection_service().select_preset(self.engine, updated.manifest.file_name)
             get_direct_flow_coordinator().refresh_selected_runtime(self.launch_method)
         return updated
 
@@ -473,7 +852,32 @@ class DirectPresetFacade:
             modified=now,
         )
         duplicated = get_preset_repository().create_preset(self.engine, new_name, rewritten)
-        self._copy_library_meta(name, duplicated.manifest.name)
+        self._copy_library_meta(
+            document.manifest.file_name,
+            duplicated.manifest.file_name,
+            source_display_name=document.manifest.name,
+            new_display_name=duplicated.manifest.name,
+        )
+        return duplicated
+
+    def duplicate_by_file_name(self, file_name: str, new_name: str) -> PresetDocument:
+        document = self.get_document_by_file_name(file_name)
+        if document is None:
+            raise ValueError(f"Preset not found: {file_name}")
+        now = datetime.now().isoformat()
+        rewritten = _rewrite_preset_headers(
+            document.source_text,
+            new_name,
+            created=now,
+            modified=now,
+        )
+        duplicated = get_preset_repository().create_preset(self.engine, new_name, rewritten)
+        self._copy_library_meta(
+            document.manifest.file_name,
+            duplicated.manifest.file_name,
+            source_display_name=document.manifest.name,
+            new_display_name=duplicated.manifest.name,
+        )
         return duplicated
 
     def create(self, name: str, *, from_current: bool = True) -> PresetDocument:
@@ -512,13 +916,25 @@ class DirectPresetFacade:
             rewritten,
             kind="imported",
         )
-        self._delete_library_meta(imported.manifest.name)
+        self._delete_library_meta(imported.manifest.file_name, display_name=imported.manifest.name)
         return imported
 
     def export_plain_text(self, name: str, dest_path: Path) -> Path:
         document = self.get_document(name)
         if document is None:
             raise ValueError(f"Preset not found: {name}")
+        dest = Path(dest_path)
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        text = document.source_text or ""
+        if not text.endswith("\n"):
+            text += "\n"
+        dest.write_text(text, encoding="utf-8")
+        return dest
+
+    def export_plain_text_by_file_name(self, file_name: str, dest_path: Path) -> Path:
+        document = self.get_document_by_file_name(file_name)
+        if document is None:
+            raise ValueError(f"Preset not found: {file_name}")
         dest = Path(dest_path)
         dest.parent.mkdir(parents=True, exist_ok=True)
         text = document.source_text or ""
@@ -535,8 +951,21 @@ class DirectPresetFacade:
         if not template_content:
             raise ValueError("Template content not found")
         rewritten = _rewrite_preset_headers(template_content, name)
-        updated = get_preset_repository().update_preset(self.engine, document.manifest.id, rewritten, None)
-        if self.is_selected(name):
+        updated = get_preset_repository().update_preset(self.engine, document.manifest.file_name, rewritten, None)
+        if self.is_selected_file_name(document.manifest.file_name):
+            self._refresh_selected_runtime_from_source()
+        return updated
+
+    def reset_to_template_by_file_name(self, file_name: str) -> PresetDocument:
+        document = self.get_document_by_file_name(file_name)
+        if document is None:
+            raise ValueError(f"Preset not found: {file_name}")
+        template_content = _resolve_reset_template(self.launch_method, document.manifest.name)
+        if not template_content:
+            raise ValueError("Template content not found")
+        rewritten = _rewrite_preset_headers(template_content, document.manifest.name)
+        updated = get_preset_repository().update_preset(self.engine, document.manifest.file_name, rewritten, None)
+        if self.is_selected_file_name(document.manifest.file_name):
             self._refresh_selected_runtime_from_source()
         return updated
 
@@ -550,8 +979,8 @@ class DirectPresetFacade:
 
             result = overwrite_v1_templates_to_presets()
 
-        selected_name = self.get_selected_name()
-        if selected_name and self.get_document(selected_name) is not None:
+        selected_file_name = self.get_selected_file_name()
+        if selected_file_name and self.get_document_by_file_name(selected_file_name) is not None:
             self._refresh_selected_runtime_from_source()
         return result
 
@@ -567,8 +996,8 @@ class DirectPresetFacade:
             clear_all_deleted_presets_v1()
             ensure_v1_templates_copied_to_presets()
 
-        selected_name = self.get_selected_name()
-        if selected_name and self.get_document(selected_name) is not None:
+        selected_file_name = self.get_selected_file_name()
+        if selected_file_name and self.get_document_by_file_name(selected_file_name) is not None:
             self._refresh_selected_runtime_from_source()
 
     def delete(self, name: str) -> None:
@@ -577,9 +1006,19 @@ class DirectPresetFacade:
             raise ValueError(f"Preset not found: {name}")
         if self.is_builtin_name(name):
             raise ValueError(f"Built-in preset cannot be deleted: {name}")
-        get_selection_service().ensure_can_delete(self.engine, document.manifest.id)
-        get_preset_repository().delete_preset(self.engine, document.manifest.id)
-        self._delete_library_meta(name)
+        get_selection_service().ensure_can_delete(self.engine, document.manifest.file_name)
+        get_preset_repository().delete_preset(self.engine, document.manifest.file_name)
+        self._delete_library_meta(document.manifest.file_name, display_name=document.manifest.name)
+
+    def delete_by_file_name(self, file_name: str) -> None:
+        document = self.get_document_by_file_name(file_name)
+        if document is None:
+            raise ValueError(f"Preset not found: {file_name}")
+        if self.is_builtin_name(document.manifest.name):
+            raise ValueError(f"Built-in preset cannot be deleted: {document.manifest.name}")
+        get_selection_service().ensure_can_delete(self.engine, document.manifest.file_name)
+        get_preset_repository().delete_preset(self.engine, document.manifest.file_name)
+        self._delete_library_meta(document.manifest.file_name, display_name=document.manifest.name)
 
     def get_strategy_selections(self) -> dict:
         if self.launch_method == "direct_zapret2":
@@ -1021,18 +1460,19 @@ class DirectPresetFacade:
         if self.launch_method == "direct_zapret2":
             from preset_zapret2.preset_storage import save_preset
             from preset_zapret2.preset_store import get_preset_store
-            from preset_zapret2.sync_layer import sync_preset_to_runtime, update_wf_out_ports_in_base_args
+            from preset_zapret2.sync_layer import save_preset_to_source, update_wf_out_ports_in_base_args
 
             preset.base_args = update_wf_out_ports_in_base_args(preset)
             if preset.name and preset.name != "Current":
                 if not save_preset(preset):
                     return False
                 try:
-                    get_preset_store().notify_preset_saved(preset.name)
+                    preset_file_name = str(getattr(preset, "_source_file_name", "") or "").strip() or preset.name
+                    get_preset_store().notify_preset_saved(preset_file_name)
                 except Exception:
                     pass
             return bool(
-                sync_preset_to_runtime(
+                save_preset_to_source(
                     preset,
                     changed_category=changed_category,
                     on_dpi_reload_needed=self.on_dpi_reload_needed,
@@ -1046,13 +1486,14 @@ class DirectPresetFacade:
             if not save_preset_v1(preset):
                 return False
             try:
-                get_preset_store_v1().notify_preset_saved(preset.name)
+                preset_file_name = str(getattr(preset, "_source_file_name", "") or "").strip() or preset.name
+                get_preset_store_v1().notify_preset_saved(preset_file_name)
             except Exception:
                 pass
 
-        selected_name = (self.get_selected_name() or "").strip().lower()
-        preset_name = str(getattr(preset, "name", "") or "").strip().lower()
-        if preset_name and selected_name and preset_name == selected_name:
+        selected_file_name = (self.get_selected_file_name() or "").strip().lower()
+        preset_file_name = str(getattr(preset, "_source_file_name", "") or "").strip().lower()
+        if preset_file_name and selected_file_name and preset_file_name == selected_file_name:
             try:
                 get_direct_flow_coordinator().refresh_selected_runtime("direct_zapret1")
                 return True

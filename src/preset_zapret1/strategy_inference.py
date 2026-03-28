@@ -56,7 +56,10 @@ def infer_strategy_id_from_args(
     def _strip_syndata_lines(value: str) -> str:
         return "\n".join(
             ln for ln in (value or "").splitlines()
-            if not ln.strip().lower().startswith(("--lua-desync=syndata:", "--lua-desync=send:"))
+            if not ln.strip().lower().startswith(
+                ("--lua-desync=syndata:", "--lua-desync=send:")
+            )
+            and ln.strip().lower() not in ("--wssize", "--wssize=1:6", "1:6", "--wssize-forced-cutoff=0")
         )
 
     normalized_input_stripped = normalize_args(_strip_syndata_lines(args))

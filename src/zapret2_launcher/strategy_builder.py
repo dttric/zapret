@@ -141,14 +141,14 @@ def _apply_settings(args: str) -> str:
     Handles:
     - Adding --wssize 1:6
     """
-    from strategy_menu import (
-        get_wssize_enabled,
-    )
+    from strategy_menu import get_strategy_launch_method, get_wssize_enabled
 
     result = args
+    launch_method = (get_strategy_launch_method() or "").strip().lower()
+    allow_launch_injection = launch_method not in {"direct_zapret1", "direct_zapret2"}
 
     # ==================== WSSIZE ADDITION ====================
-    if get_wssize_enabled():
+    if allow_launch_injection and get_wssize_enabled():
         # Add --wssize 1:6 for TCP 443
         if "--wssize" not in result:
             # Insert after --wf-* arguments
@@ -318,7 +318,7 @@ def combine_strategies_v2(is_orchestra: bool = False, **kwargs) -> dict:
         category_strategies = registry.get_default_selections()
 
     # ==================== BASE ARGUMENTS ====================
-    from strategy_menu import get_debug_log_enabled
+    from strategy_menu import get_debug_log_enabled, get_strategy_launch_method
     from config import LUA_FOLDER, WINDIVERT_FILTER, LOGS_FOLDER
 
     # Lua libraries must be loaded first (REQUIRED for Zapret 2)
@@ -467,7 +467,10 @@ def combine_strategies_v2(is_orchestra: bool = False, **kwargs) -> dict:
 
     # ==================== DEBUG LOG ====================
     # Added at the beginning of command line if enabled
-    if get_debug_log_enabled():
+    launch_method = (get_strategy_launch_method() or "").strip().lower()
+    allow_launch_injection = launch_method not in {"direct_zapret1", "direct_zapret2"}
+
+    if allow_launch_injection and get_debug_log_enabled():
         from datetime import datetime
         from log.log import cleanup_old_logs
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")

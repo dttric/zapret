@@ -17,6 +17,7 @@ import shutil
 from datetime import datetime
 from pathlib import Path
 from typing import List, Optional, Tuple, TYPE_CHECKING
+import warnings
 
 from log import log
 from .preset_model import DEFAULT_PRESET_ICON_COLOR, normalize_preset_icon_color
@@ -96,6 +97,8 @@ def get_presets_dir() -> Path:
 
 def get_preset_path(name: str) -> Path:
     """
+    Legacy compatibility wrapper: resolves a preset by display/stem name.
+
     Returns path to a specific preset file.
 
     Args:
@@ -109,19 +112,45 @@ def get_preset_path(name: str) -> Path:
     return get_presets_dir() / f"{safe_name}.txt"
 
 
-def get_runtime_config_path() -> Path:
+def get_preset_path_by_file_name(file_name: str) -> Path:
     """
-    Returns path to the generated runtime config for direct_zapret2.
+    Preferred file-based path helper.
+
+    Args:
+        file_name: Actual preset file name, usually ending with `.txt`
 
     Returns:
-        Path to runtime effective config for winws2
+        Path to presets/<file_name>
     """
-    return _core_paths().effective_config_path
+    candidate = Path(str(file_name or "").strip()).name
+    if not candidate:
+        candidate = "Preset.txt"
+    if not candidate.lower().endswith(".txt"):
+        candidate = f"{candidate}.txt"
+    return get_presets_dir() / candidate
 
 
 def get_active_preset_path() -> Path:
-    """Compatibility alias for get_runtime_config_path()."""
-    return get_runtime_config_path()
+    """
+    Returns the currently selected source preset path for direct_zapret2.
+
+    This is the only launch file in the new architecture.
+    """
+    try:
+        from core.services import get_app_paths, get_selection_service
+
+        engine = _core_engine_id()
+        engine_paths = get_app_paths().engine_paths(engine)
+        selection = get_selection_service()
+        selected = selection.get_selected_preset(engine)
+        if selected is None:
+            selected = selection.ensure_selected_preset(engine, "Default.txt")
+        if selected is not None:
+            return engine_paths.presets_dir / selected.manifest.file_name
+    except Exception:
+        pass
+
+    return Path(_get_presets_root_path()) / "Default.txt"
 
 
 def get_user_settings_path() -> Path:
@@ -173,9 +202,6 @@ def list_presets() -> List[str]:
     if presets_dir.exists():
         for f in presets_dir.glob("*.txt"):
             if f.is_file():
-                # Do not treat the active runtime file as a user preset.
-                if f.stem.lower() == "preset-zapret2":
-                    continue
                 presets.add(f.stem)
 
     return sorted(presets, key=lambda s: s.lower())
@@ -183,6 +209,8 @@ def list_presets() -> List[str]:
 
 def preset_exists(name: str) -> bool:
     """
+    Legacy compatibility wrapper: checks existence by display/stem name.
+
     Checks if preset with given name exists.
 
     Args:
@@ -194,12 +222,19 @@ def preset_exists(name: str) -> bool:
     return get_preset_path(name).exists()
 
 
+def preset_file_exists(file_name: str) -> bool:
+    """Preferred file-based existence check."""
+    return get_preset_path_by_file_name(file_name).exists()
+
+
 # ============================================================================
 # LOAD/SAVE OPERATIONS
 # ============================================================================
 
 def load_preset(name: str) -> Optional[Preset]:
     """
+    Legacy compatibility wrapper: loads a preset by display/stem name.
+
     Loads preset from file.
 
     Args:
@@ -386,6 +421,14 @@ def load_preset(name: str) -> Optional[Preset]:
     except Exception as e:
         log(f"Error loading preset '{name}': {e}", "ERROR")
         return None
+
+
+def load_preset_by_file_name(file_name: str) -> Optional[Preset]:
+    """Preferred file-based load helper."""
+    candidate = Path(str(file_name or "").strip()).name
+    if not candidate:
+        return None
+    return load_preset(Path(candidate).stem)
 
 
 def _parse_metadata_from_header(header: str) -> Tuple[str, str, str, str]:

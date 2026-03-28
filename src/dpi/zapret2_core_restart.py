@@ -71,7 +71,7 @@ def _has_active_strategies() -> bool:
     try:
         from core.services import get_direct_flow_coordinator
 
-        preset_path = get_direct_flow_coordinator().ensure_runtime("direct_zapret2")
+        preset_path = get_direct_flow_coordinator().get_selected_source_path("direct_zapret2")
         if not preset_path.exists():
             return False
 
@@ -94,7 +94,7 @@ def trigger_dpi_reload(
     НОВАЯ АРХИТЕКТУРА (без реестра):
     - Source preset уже обновлен UI через direct facade / sync layer
     - Hot-reload: ConfigFileWatcher в StrategyRunnerV2 автоматически перезапустит
-      winws2.exe когда обнаружит изменение preset-zapret2.txt
+      winws2.exe когда обнаружит изменение выбранного source-пресета
     - Эта функция нужна только для немедленного перезапуска если hot-reload выключен
 
     Args:
@@ -126,10 +126,10 @@ def trigger_dpi_reload(
         log(f"trigger_dpi_reload: DPI не запущен, перезапуск не требуется", "DEBUG")
         return False
 
-    # 4. Проверяем наличие preset файла с активными фильтрами
+    # 4. Проверяем наличие выбранного source-пресета с активными фильтрами
     try:
         from core.services import get_direct_flow_coordinator
-        preset_path = get_direct_flow_coordinator().ensure_runtime("direct_zapret2")
+        preset_path = get_direct_flow_coordinator().get_selected_source_path("direct_zapret2")
 
         if not preset_path.exists():
             log("Preset файл не найден - останавливаем DPI", "WARNING")

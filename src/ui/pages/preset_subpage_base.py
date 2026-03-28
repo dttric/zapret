@@ -125,10 +125,6 @@ class _RenameDialog(MessageBoxBase):
             self.warningLabel.setText("Введите название.")
             self.warningLabel.show()
             return False
-        if name != self._current_name and name in self._existing_names:
-            self.warningLabel.setText(f"Пресет «{name}» уже существует.")
-            self.warningLabel.show()
-            return False
         self.warningLabel.hide()
         return True
 
@@ -140,6 +136,7 @@ class PresetSubpageBase(BasePage):
         super().__init__(self._default_title(), "", parent)
         self.parent_app = parent
         self._preset_name = ""
+        self._preset_file_name = ""
         self._preset_path: Path | None = None
         self._is_loading = False
         self._loaded_once = False
@@ -279,12 +276,42 @@ class PresetSubpageBase(BasePage):
         self.add_widget(self.footerLabel)
 
     def set_preset_name(self, name: str) -> None:
+        facade = self._get_direct_facade()
+        if facade is not None:
+            try:
+                document = facade.get_document(name)
+            except Exception:
+                document = None
+            if document is not None:
+                self.set_preset_file_name(document.manifest.file_name)
+                return
         self._flush_pending_save()
         self._preset_name = str(name or "").strip()
+        self._preset_file_name = ""
         facade = self._get_direct_facade()
         if facade is not None and self._preset_name:
             try:
                 self._preset_path = facade.get_source_path(self._preset_name)
+            except Exception:
+                self._preset_path = self._get_preset_path(self._preset_name)
+        else:
+            self._preset_path = self._get_preset_path(self._preset_name)
+        self._loaded_once = True
+        self._load_file()
+        self._refresh_header()
+
+    def set_preset_file_name(self, file_name: str) -> None:
+        self._flush_pending_save()
+        self._preset_file_name = str(file_name or "").strip()
+        self._preset_name = Path(self._preset_file_name).stem if self._preset_file_name else ""
+        facade = self._get_direct_facade()
+        if facade is not None and self._preset_file_name:
+            try:
+                document = facade.get_document_by_file_name(self._preset_file_name)
+                if document is not None:
+                    self._preset_name = document.manifest.name
+                    self._preset_file_name = document.manifest.file_name
+                self._preset_path = facade.get_source_path_by_file_name(self._preset_file_name)
             except Exception:
                 self._preset_path = self._get_preset_path(self._preset_name)
         else:
@@ -301,7 +328,12 @@ class PresetSubpageBase(BasePage):
     def _refresh_header(self) -> None:
         self.title_label.setText(self._preset_name or self._default_title())
         active_name = self._current_selected_name()
-        is_active = active_name.lower() == self._preset_name.lower() if self._preset_name else False
+        active_file_name = self._current_selected_file_name()
+        is_active = False
+        if self._preset_file_name:
+            is_active = active_file_name.lower() == self._preset_file_name.lower()
+        elif self._preset_name:
+            is_active = active_name.lower() == self._preset_name.lower()
         facade = self._get_direct_facade()
         origin = "builtin" if self._is_current_builtin() else "user"
         if facade is not None and self._preset_name:
@@ -355,16 +387,27 @@ class PresetSubpageBase(BasePage):
             facade = self._get_direct_facade()
             used_facade = facade is not None
             if facade is not None:
-                facade.save_source_text(self._preset_name, self.editor.toPlainText())
+                if self._preset_file_name:
+                    updated = facade.save_source_text_by_file_name(self._preset_file_name, self.editor.toPlainText())
+                else:
+                    updated = facade.save_source_text(self._preset_name, self.editor.toPlainText())
+                self._preset_name = updated.manifest.name
+                self._preset_file_name = updated.manifest.file_name
+                self._preset_path = facade.get_source_path_by_file_name(self._preset_file_name)
             else:
                 self._preset_path.parent.mkdir(parents=True, exist_ok=True)
                 self._preset_path.write_text(self.editor.toPlainText(), encoding="utf-8")
             active_name = self._current_selected_name()
-            if active_name.lower() == self._preset_name.lower():
+            active_file_name = self._current_selected_file_name()
+            if (
+                self._preset_file_name and active_file_name.lower() == self._preset_file_name.lower()
+            ) or (
+                not self._preset_file_name and active_name.lower() == self._preset_name.lower()
+            ):
                 if not used_facade:
                     self._refresh_selected_runtime()
                 self._notify_preset_switched()
-            self._notify_preset_saved(self._preset_name)
+            self._notify_preset_saved(self._preset_file_name or self._preset_name)
             self._set_footer(f"Сохранено {datetime.now().strftime('%H:%M:%S')}")
         except Exception as e:
             self._set_footer(f"Ошибка сохранения: {e}")
@@ -437,16 +480,21 @@ class PresetSubpageBase(BasePage):
         try:
             facade = self._get_direct_facade()
             if facade is not None:
-                facade.rename(self._preset_name, new_name)
-                self._notify_presets_changed()
-                self.set_preset_name(new_name)
-                if facade.is_selected(new_name):
+                if self._preset_file_name:
+                    updated = facade.rename_by_file_name(self._preset_file_name, new_name)
+                    self._notify_presets_changed()
+                    self.set_preset_file_name(updated.manifest.file_name)
+                else:
+                    facade.rename(self._preset_name, new_name)
+                    self._notify_presets_changed()
+                    self.set_preset_name(new_name)
+                if (self._preset_file_name and facade.is_selected_file_name(self._preset_file_name)) or facade.is_selected(self._preset_name):
                     self._notify_preset_switched()
                 self._show_success(f"Пресет переименован: {new_name}")
-            elif self._get_manager_obj().rename_preset(self._preset_name, new_name):
+            elif self._preset_file_name and self._get_manager_obj().rename_preset_by_file_name(self._preset_file_name, new_name):
                 hierarchy = self._get_hierarchy_store()
                 if hierarchy is not None:
-                    hierarchy.rename_preset_meta(self._preset_name, new_name)
+                    hierarchy.rename_preset_meta(self._preset_name, new_name, old_display_name=self._preset_name, new_display_name=new_name)
                 self.set_preset_name(new_name)
                 self._show_success(f"Пресет переименован: {new_name}")
             else:
@@ -464,14 +512,19 @@ class PresetSubpageBase(BasePage):
                 counter += 1
                 new_name = f"{self._preset_name} (копия {counter})"
             if facade is not None:
-                facade.duplicate(self._preset_name, new_name)
-                self._notify_presets_changed()
-                self.set_preset_name(new_name)
+                if self._preset_file_name:
+                    duplicated = facade.duplicate_by_file_name(self._preset_file_name, new_name)
+                    self._notify_presets_changed()
+                    self.set_preset_file_name(duplicated.manifest.file_name)
+                else:
+                    facade.duplicate(self._preset_name, new_name)
+                    self._notify_presets_changed()
+                    self.set_preset_name(new_name)
                 self._show_success(f"Создан дубликат: {new_name}")
-            elif self._get_manager_obj().duplicate_preset(self._preset_name, new_name):
+            elif self._preset_file_name and self._get_manager_obj().duplicate_preset_by_file_name(self._preset_file_name, new_name):
                 hierarchy = self._get_hierarchy_store()
                 if hierarchy is not None:
-                    hierarchy.copy_preset_meta_to_new(self._preset_name, new_name)
+                    hierarchy.copy_preset_meta_to_new(self._preset_name, new_name, source_display_name=self._preset_name, new_display_name=new_name)
                 self.set_preset_name(new_name)
                 self._show_success(f"Создан дубликат: {new_name}")
             else:
@@ -492,9 +545,12 @@ class PresetSubpageBase(BasePage):
         try:
             facade = self._get_direct_facade()
             if facade is not None:
-                facade.export_plain_text(self._preset_name, Path(file_path))
+                if self._preset_file_name:
+                    facade.export_plain_text_by_file_name(self._preset_file_name, Path(file_path))
+                else:
+                    facade.export_plain_text(self._preset_name, Path(file_path))
                 self._show_success(f"Пресет экспортирован: {file_path}")
-            elif self._get_manager_obj().export_preset(self._preset_name, Path(file_path)):
+            elif self._preset_file_name and self._get_manager_obj().export_preset_by_file_name(self._preset_file_name, Path(file_path)):
                 self._show_success(f"Пресет экспортирован: {file_path}")
             else:
                 self._show_error("Не удалось экспортировать пресет")
@@ -516,11 +572,17 @@ class PresetSubpageBase(BasePage):
         try:
             facade = self._get_direct_facade()
             if facade is not None:
-                facade.reset_to_template(self._preset_name)
+                if self._preset_file_name:
+                    updated = facade.reset_to_template_by_file_name(self._preset_file_name)
+                    self._preset_name = updated.manifest.name
+                    self._preset_file_name = updated.manifest.file_name
+                    self._preset_path = facade.get_source_path_by_file_name(self._preset_file_name)
+                else:
+                    facade.reset_to_template(self._preset_name)
                 self._load_file()
                 self._refresh_header()
-                self._notify_preset_saved(self._preset_name)
-                if facade.is_selected(self._preset_name):
+                self._notify_preset_saved(self._preset_file_name or self._preset_name)
+                if (self._preset_file_name and facade.is_selected_file_name(self._preset_file_name)) or facade.is_selected(self._preset_name):
                     self._notify_preset_switched()
                 self._show_success(f"Пресет «{self._preset_name}» сброшен")
             elif self._get_manager_obj().reset_preset_to_default_template(self._preset_name):
@@ -551,14 +613,17 @@ class PresetSubpageBase(BasePage):
             name = self._preset_name
             facade = self._get_direct_facade()
             if facade is not None:
-                facade.delete(name)
+                if self._preset_file_name:
+                    facade.delete_by_file_name(self._preset_file_name)
+                else:
+                    facade.delete(name)
                 self._notify_presets_changed()
                 self.back_clicked.emit()
                 self._show_success(f"Пресет «{name}» удалён")
-            elif self._get_manager_obj().delete_preset(name):
+            elif self._preset_file_name and self._get_manager_obj().delete_preset_by_file_name(self._preset_file_name):
                 hierarchy = self._get_hierarchy_store()
                 if hierarchy is not None:
-                    hierarchy.delete_preset_meta(name)
+                    hierarchy.delete_preset_meta(name, display_name=name)
                 self.back_clicked.emit()
                 self._show_success(f"Пресет «{name}» удалён")
             else:
@@ -577,6 +642,23 @@ class PresetSubpageBase(BasePage):
                 return ""
         return (self._get_manager_obj().get_active_preset_name() or "").strip()
 
+    def _current_selected_file_name(self) -> str:
+        method = self._direct_launch_method()
+        if method:
+            try:
+                from core.services import get_direct_flow_coordinator
+
+                return (get_direct_flow_coordinator().get_selected_source_file_name(method) or "").strip()
+            except Exception:
+                return ""
+        getter = getattr(self._get_manager_obj(), "get_active_preset_file_name", None)
+        if callable(getter):
+            try:
+                return str(getter() or "").strip()
+            except Exception:
+                return ""
+        return ""
+
     def _refresh_selected_runtime(self) -> bool:
         method = self._direct_launch_method()
         if method:
@@ -590,7 +672,7 @@ class PresetSubpageBase(BasePage):
         switch_preset = getattr(self._get_manager_obj(), "switch_preset", None)
         if not callable(switch_preset):
             return False
-        return bool(switch_preset(self._preset_name, reload_dpi=False))
+        return bool(switch_preset(self._preset_file_name or self._preset_name, reload_dpi=False))
 
     def _activate_selected_preset(self) -> bool:
         method = self._direct_launch_method()
@@ -598,7 +680,10 @@ class PresetSubpageBase(BasePage):
             try:
                 from core.services import get_direct_flow_coordinator
 
-                get_direct_flow_coordinator().select_preset(method, self._preset_name)
+                if self._preset_file_name:
+                    get_direct_flow_coordinator().select_preset_file_name(method, self._preset_file_name)
+                else:
+                    get_direct_flow_coordinator().select_preset(method, self._preset_name)
                 self._notify_preset_switched()
                 return True
             except Exception:
@@ -606,7 +691,7 @@ class PresetSubpageBase(BasePage):
         switch_preset = getattr(self._get_manager_obj(), "switch_preset", None)
         if not callable(switch_preset):
             return False
-        return bool(switch_preset(self._preset_name, reload_dpi=False))
+        return bool(switch_preset(self._preset_file_name or self._preset_name, reload_dpi=False))
 
     def _notify_preset_switched(self) -> None:
         method = self._direct_launch_method()
@@ -614,11 +699,11 @@ class PresetSubpageBase(BasePage):
             if method == "direct_zapret2":
                 from preset_zapret2.preset_store import get_preset_store
 
-                get_preset_store().notify_preset_switched(self._preset_name)
+                get_preset_store().notify_preset_switched(self._preset_file_name or self._preset_name)
             elif method == "direct_zapret1":
                 from preset_zapret1.preset_store import get_preset_store_v1
 
-                get_preset_store_v1().notify_preset_switched(self._preset_name)
+                get_preset_store_v1().notify_preset_switched(self._preset_file_name or self._preset_name)
         except Exception:
             pass
 

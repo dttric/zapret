@@ -574,9 +574,11 @@ class Zapret2DirectControlPage(BasePage):
         self._load_advanced_settings()
 
     def _load_advanced_settings(self) -> None:
-        """Sync advanced toggles from registry."""
+        """Sync advanced toggles from the current direct preset state."""
         try:
-            from strategy_menu import get_wssize_enabled, get_debug_log_enabled
+            from core.presets.direct_facade import DirectPresetFacade
+
+            facade = DirectPresetFacade.from_launch_method("direct_zapret2")
 
             try:
                 from discord.discord_restart import get_discord_restart_setting
@@ -591,12 +593,12 @@ class Zapret2DirectControlPage(BasePage):
             wssize_toggle = getattr(self, "wssize_toggle", None)
             set_checked = getattr(wssize_toggle, "setChecked", None)
             if callable(set_checked):
-                set_checked(bool(get_wssize_enabled()), block_signals=True)
+                set_checked(bool(facade.get_wssize_enabled()), block_signals=True)
 
             debug_toggle = getattr(self, "debug_log_toggle", None)
             set_checked = getattr(debug_toggle, "setChecked", None)
             if callable(set_checked):
-                set_checked(bool(get_debug_log_enabled()), block_signals=True)
+                set_checked(bool(facade.get_debug_log_enabled()), block_signals=True)
         except Exception:
             pass
 
@@ -610,25 +612,17 @@ class Zapret2DirectControlPage(BasePage):
 
     def _on_wssize_toggled(self, enabled: bool) -> None:
         try:
-            from strategy_menu import set_wssize_enabled
+            from core.presets.direct_facade import DirectPresetFacade
 
-            set_wssize_enabled(bool(enabled))
+            DirectPresetFacade.from_launch_method("direct_zapret2").set_wssize_enabled(bool(enabled))
         except Exception:
             pass
 
     def _on_debug_log_toggled(self, enabled: bool) -> None:
         try:
-            from strategy_menu import set_debug_log_enabled
+            from core.presets.direct_facade import DirectPresetFacade
 
-            set_debug_log_enabled(bool(enabled))
-        except Exception:
-            pass
-
-        # direct_zapret2: keep generated launch config in sync with runtime --debug setting
-        try:
-            from core.services import get_direct_flow_coordinator
-
-            get_direct_flow_coordinator().refresh_selected_runtime("direct_zapret2")
+            DirectPresetFacade.from_launch_method("direct_zapret2").set_debug_log_enabled(bool(enabled))
         except Exception:
             pass
 
@@ -696,8 +690,8 @@ class Zapret2DirectControlPage(BasePage):
         except Exception:
             pass
 
-        # Rebuild the generated launch config from the currently selected strategy IDs
-        # using the newly selected strategies catalog (basic vs default).
+        # Re-save the selected source preset using the newly selected
+        # strategies catalog (basic vs default).
         try:
             from dpi.zapret2_core_restart import trigger_dpi_reload
             from core.presets.direct_facade import DirectPresetFacade
@@ -1015,9 +1009,8 @@ class Zapret2DirectControlPage(BasePage):
         try:
             from core.services import get_direct_flow_coordinator
 
-            active_preset_name = (
-                get_direct_flow_coordinator().get_selected_preset_name("direct_zapret2") or ""
-            ).strip()
+            preset = get_direct_flow_coordinator().get_selected_source_preset("direct_zapret2")
+            active_preset_name = str(getattr(getattr(preset, "manifest", None), "name", "") or "").strip()
         except Exception:
             active_preset_name = ""
 

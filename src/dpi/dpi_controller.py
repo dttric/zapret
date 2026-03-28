@@ -61,7 +61,7 @@ class DPIStartWorker(QObject):
             # Проверяем, не запущен ли уже процесс
             process_running = self.dpi_starter.check_process_running_wmi(silent=True)
             if process_running:
-                # direct_zapret2: если запущен ТОТ ЖЕ generated launch config (@file),
+                # direct_zapret2: если запущен ТОТ ЖЕ selected source preset (@file),
                 # не останавливаем и не перезапускаем — просто "подключаемся".
                 try:
                     if (
@@ -230,12 +230,12 @@ class DPIStartWorker(QObject):
                     try:
                         from core.services import get_direct_flow_coordinator
 
-                        regenerated_path = get_direct_flow_coordinator().ensure_runtime(self.launch_method)
-                        if regenerated_path.exists():
-                            preset_path = str(regenerated_path)
-                            log(f"Auto-regenerated missing launch config: {preset_path}", "INFO")
+                        selected_source_path = get_direct_flow_coordinator().ensure_runtime(self.launch_method)
+                        if selected_source_path.exists():
+                            preset_path = str(selected_source_path)
+                            log(f"Recovered missing selected source preset path: {preset_path}", "INFO")
                     except Exception as e:
-                        log(f"Failed to auto-regenerate launch config: {e}", "WARNING")
+                        log(f"Failed to recover selected source preset path: {e}", "WARNING")
 
                 if not os.path.exists(preset_path):
                     log(f"Preset файл не найден: {preset_path}", "❌ ERROR")
@@ -753,7 +753,7 @@ class DPIController:
         elif selected_mode is None or selected_mode == 'default':
             if launch_method in ("direct_zapret2", "direct_zapret2_orchestra", "direct_zapret1"):
                 # Для Direct режимов используем готовый preset файл.
-                # direct_zapret2/direct_zapret1: generated launch config from the selected preset
+                # direct_zapret2/direct_zapret1: selected source preset path
                 # direct_zapret2_orchestra: legacy orchestra-specific flow
                 if launch_method == "direct_zapret2_orchestra":
                     from preset_orchestra_zapret2 import (
@@ -774,7 +774,7 @@ class DPIController:
                             require_filters=True,
                         )
                         selected_mode = profile.to_selected_mode()
-                        log(f"Используется generated launch config: {profile.launch_config_path}", "INFO")
+                        log(f"Используется выбранный source-пресет: {profile.launch_config_path}", "INFO")
                     except Exception as e:
                         log(f"Ошибка подготовки direct запуска: {e}", "❌ ERROR")
                         self.app.set_status(f"❌ {e}")

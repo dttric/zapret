@@ -6,6 +6,15 @@ import os
 from log import log
 
 
+def _is_direct_source_preset_launch() -> bool:
+    try:
+        from strategy_menu import get_strategy_launch_method
+
+        return (get_strategy_launch_method() or "").strip().lower() in {"direct_zapret1", "direct_zapret2"}
+    except Exception:
+        return False
+
+
 def _has_port_443(ports_part: str) -> bool:
     """
     Проверяет, содержит ли строка с портами порт 443
@@ -50,6 +59,9 @@ def apply_wssize_parameter(args: list) -> list:
     Returns:
         Модифицированный список аргументов с добавленными wssize параметрами
     """
+    if _is_direct_source_preset_launch():
+        return args
+
     from strategy_menu import get_wssize_enabled
 
     if not get_wssize_enabled():

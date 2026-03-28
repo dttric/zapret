@@ -176,8 +176,8 @@ class Zapret2StrategiesPageNew(BasePage):
             # Загружаем выборы из selected source preset
             self.category_selections = get_direct_strategy_selections() or {}
             store = get_preset_store()
-            active_name = store.get_active_preset_name() or ""
-            preset = store.get_preset(active_name) if active_name else None
+            active_file_name = store.get_selected_source_preset_file_name() or ""
+            preset = store.get_preset_by_file_name(active_file_name) if active_file_name else None
             filter_modes = {}
             if preset:
                 filter_modes = {k: v.filter_mode for k, v in preset.categories.items()}
@@ -409,8 +409,8 @@ class Zapret2StrategiesPageNew(BasePage):
 
             self.category_selections = get_direct_strategy_selections() or {}
             store = get_preset_store()
-            active_name = store.get_active_preset_name() or ""
-            preset = store.get_preset(active_name) if active_name else None
+            active_file_name = store.get_selected_source_preset_file_name() or ""
+            preset = store.get_preset_by_file_name(active_file_name) if active_file_name else None
             filter_modes = {}
             if preset:
                 try:

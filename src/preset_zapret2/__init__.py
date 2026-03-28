@@ -1,5 +1,5 @@
 # presets/__init__.py
-"""Preset system for direct_zapret2 source presets and generated runtime config."""
+"""Preset system for direct_zapret2 source presets and launch-ready source flow."""
 
 from pathlib import Path
 
@@ -12,7 +12,6 @@ from .preset_storage import (
     duplicate_preset,
     export_preset,
     get_active_preset_path,
-    get_runtime_config_path,
     get_preset_path,
     get_presets_dir,
     get_user_settings_path,
@@ -278,7 +277,7 @@ def ensure_default_preset_exists() -> bool:
     """
     Ensures that a default preset exists for direct_zapret2 mode.
 
-    Ensures a selected preset exists and runtime config can be generated.
+    Ensures a selected preset exists and is ready for direct launch.
 
     This function should be called during application startup
     when running in direct_zapret2 mode.
@@ -295,7 +294,7 @@ def ensure_default_preset_exists() -> bool:
             "direct_zapret2",
             require_filters=False,
         )
-        log(f"Selected winws2 preset ensured and launch config regenerated: {profile.launch_config_path}", "INFO")
+        log(f"Selected winws2 source preset ensured for launch: {profile.launch_config_path}", "INFO")
         return True
 
     except Exception as e:
@@ -310,7 +309,7 @@ def restore_builtin_preset(preset_name: str) -> bool:
     Restores a preset from the template in presets_v2_template/.
 
     Overwrites the source preset in presets/ with the template content.
-    If the preset is currently selected, regenerates the runtime config.
+    If the preset is currently selected, refreshes direct launch state from this same source file.
 
     Returns:
         True if restore was successful, False otherwise
@@ -335,14 +334,14 @@ def restore_builtin_preset(preset_name: str) -> bool:
             from core.services import get_direct_flow_coordinator
 
             coordinator = get_direct_flow_coordinator()
-            selected_name = (coordinator.get_selected_preset_name("direct_zapret2") or "").strip()
+            selected_file_name = (coordinator.get_selected_source_file_name("direct_zapret2") or "").strip()
         except Exception:
             coordinator = None
-            selected_name = ""
+            selected_file_name = ""
 
-        if coordinator is not None and selected_name and selected_name.lower() == canonical.lower():
+        if coordinator is not None and selected_file_name and selected_file_name.lower() == preset_path.name.lower():
             profile = coordinator.refresh_selected_runtime("direct_zapret2")
-            log(f"Also regenerated runtime config at {profile.launch_config_path}", "SUCCESS")
+            log(f"Selected source preset refreshed after restore: {profile.launch_config_path}", "SUCCESS")
 
         return True
 
@@ -388,7 +387,6 @@ __all__ = [
     "get_presets_dir",
     "get_preset_path",
     "get_active_preset_path",
-    "get_runtime_config_path",
     "get_user_settings_path",
     "list_presets",
     "preset_exists",

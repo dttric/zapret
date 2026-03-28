@@ -1036,6 +1036,7 @@ class MainWindowUI:
             )
 
         if page_name in (PageName.ZAPRET2_USER_PRESETS, PageName.ZAPRET2_ORCHESTRA_USER_PRESETS) and hasattr(page, "preset_open_requested"):
+            # User presets pages emit file_name here.
             self._connect_signal_once(
                 f"{page_name.name}.preset_open_requested",
                 page.preset_open_requested,
@@ -1049,6 +1050,7 @@ class MainWindowUI:
             )
 
         if page_name == PageName.ZAPRET1_USER_PRESETS and hasattr(page, "preset_open_requested"):
+            # User presets page emits file_name here.
             self._connect_signal_once(
                 "z1_user_presets.preset_open_requested",
                 page.preset_open_requested,
@@ -1470,7 +1472,9 @@ class MainWindowUI:
         page = self._ensure_page(PageName.ZAPRET2_PRESET_DETAIL)
         if page is None:
             return
-        if hasattr(page, "set_preset_name"):
+        if hasattr(page, "set_preset_file_name") and str(preset_name or "").strip().lower().endswith(".txt"):
+            page.set_preset_file_name(preset_name)
+        elif hasattr(page, "set_preset_name"):
             page.set_preset_name(preset_name)
         self.show_page(PageName.ZAPRET2_PRESET_DETAIL)
 
@@ -1478,7 +1482,9 @@ class MainWindowUI:
         page = self._ensure_page(PageName.ZAPRET1_PRESET_DETAIL)
         if page is None:
             return
-        if hasattr(page, "set_preset_name"):
+        if hasattr(page, "set_preset_file_name") and str(preset_name or "").strip().lower().endswith(".txt"):
+            page.set_preset_file_name(preset_name)
+        elif hasattr(page, "set_preset_name"):
             page.set_preset_name(preset_name)
         self.show_page(PageName.ZAPRET1_PRESET_DETAIL)
 
@@ -1877,7 +1883,7 @@ class MainWindowUI:
                 from preset_orchestra_zapret2 import get_active_preset_path
             elif method == "direct_zapret2":
                 from core.services import get_direct_flow_coordinator
-                watched_path = os.fspath(get_direct_flow_coordinator().ensure_runtime("direct_zapret2"))
+                watched_path = os.fspath(get_direct_flow_coordinator().get_selected_source_path("direct_zapret2"))
                 if not watched_path:
                     return
             else:
@@ -2038,6 +2044,20 @@ class MainWindowUI:
                 z1_ctrl._refresh_preset_name()
         except Exception as e:
             log(f"Ошибка обновления zapret1_direct_control_page после смены пресета: {e}", "DEBUG")
+
+        try:
+            z2_ctrl = getattr(self, "zapret2_direct_control_page", None)
+            if z2_ctrl and hasattr(z2_ctrl, "_load_advanced_settings"):
+                z2_ctrl._load_advanced_settings()
+        except Exception as e:
+            log(f"Ошибка обновления advanced toggles zapret2_direct_control_page после смены пресета: {e}", "DEBUG")
+
+        try:
+            orchestra_ctrl = getattr(self, "orchestra_zapret2_control_page", None)
+            if orchestra_ctrl and hasattr(orchestra_ctrl, "_load_advanced_settings"):
+                orchestra_ctrl._load_advanced_settings()
+        except Exception as e:
+            log(f"Ошибка обновления advanced toggles orchestra_zapret2_control_page после смены пресета: {e}", "DEBUG")
 
         try:
             display_name = self._get_direct_strategy_summary()

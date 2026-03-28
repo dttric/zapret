@@ -206,7 +206,8 @@ def infer_strategy_id_from_args(
             is_syndata = s == "--lua-desync=syndata" or s.startswith("--lua-desync=syndata:")
             is_send = s == "--lua-desync=send" or s.startswith("--lua-desync=send:")
             is_out_range = s.startswith("--out-range") or s.startswith("--in-range")
-            return is_syndata or is_send or is_out_range
+            is_wssize = s == "--lua-desync=wssize:wsize=1:scale=6"
+            return is_syndata or is_send or is_out_range or is_wssize
         return "\n".join(ln for ln in a.splitlines() if not _is_syndata_or_send(ln))
 
     normalized_input_stripped = normalize_args(_strip_syndata_lines(args))

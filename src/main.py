@@ -849,7 +849,8 @@ class LupiDPIApp(ZapretFluentWindow, MainWindowUI, ThemeSubscriptionManager):
                 try:
                     from core.services import get_direct_flow_coordinator
 
-                    preset_name = get_direct_flow_coordinator().get_selected_preset_name("direct_zapret2")
+                    preset = get_direct_flow_coordinator().get_selected_source_preset("direct_zapret2")
+                    preset_name = str(getattr(getattr(preset, "manifest", None), "name", "") or "")
                     display_name = f"Пресет: {preset_name}"
                 except Exception:
                     display_name = "Пресет"
@@ -868,7 +869,8 @@ class LupiDPIApp(ZapretFluentWindow, MainWindowUI, ThemeSubscriptionManager):
                     try:
                         from core.services import get_direct_flow_coordinator
 
-                        preset_name = get_direct_flow_coordinator().get_selected_preset_name("direct_zapret1")
+                        preset = get_direct_flow_coordinator().get_selected_source_preset("direct_zapret1")
+                        preset_name = str(getattr(getattr(preset, "manifest", None), "name", "") or "")
                         display_name = f"Пресет: {preset_name}"
                     except Exception:
                         display_name = "Пресет"
@@ -886,7 +888,7 @@ class LupiDPIApp(ZapretFluentWindow, MainWindowUI, ThemeSubscriptionManager):
             if launch_method in ("direct_zapret2", "direct_zapret2_orchestra", "direct_zapret1"):
                 if strategy_id == "DIRECT_MODE" or strategy_id == "combined":
                     
-                    # ✅ ДЛЯ direct_zapret2 - используем runtime config выбранного пресета
+                    # ✅ ДЛЯ direct_zapret2 - используем выбранный source-пресет
                     if launch_method == "direct_zapret2":
                         try:
                             from core.services import get_direct_flow_coordinator
@@ -899,10 +901,10 @@ class LupiDPIApp(ZapretFluentWindow, MainWindowUI, ThemeSubscriptionManager):
                             self.set_status(str(e))
                             return
 
-                        log(f"Запуск direct_zapret2 из generated launch config: {profile.launch_config_path}", "INFO")
+                        log(f"Запуск direct_zapret2 из выбранного source-пресета: {profile.launch_config_path}", "INFO")
                         self.dpi_controller.start_dpi_async(selected_mode=combined_data, launch_method=launch_method)
                     
-                    # ✅ ДЛЯ direct_zapret1 - используем runtime config выбранного пресета
+                    # ✅ ДЛЯ direct_zapret1 - используем выбранный source-пресет
                     elif launch_method == "direct_zapret1":
                         try:
                             from core.services import get_direct_flow_coordinator
@@ -915,7 +917,7 @@ class LupiDPIApp(ZapretFluentWindow, MainWindowUI, ThemeSubscriptionManager):
                             self.set_status(str(e))
                             return
 
-                        log(f"Запуск Zapret1 из generated launch config: {profile.launch_config_path}", "INFO")
+                        log(f"Запуск Zapret1 из выбранного source-пресета: {profile.launch_config_path}", "INFO")
                         self.dpi_controller.start_dpi_async(selected_mode=combined_data, launch_method=launch_method)
 
                     # ✅ ДЛЯ direct_zapret2_orchestra - используем preset-zapret2-orchestra.txt

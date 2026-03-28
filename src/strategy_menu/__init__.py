@@ -406,43 +406,25 @@ def toggle_favorite_strategy_legacy(strategy_id):
 
 # ==================== НАСТРОЙКИ ПРЯМОГО РЕЖИМА ====================
 
-def get_base_args_selection() -> str:
-    """Получает выбранный вариант базовых аргументов"""
-    try:
-        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, DIRECT_PATH) as key:
-            value, _ = winreg.QueryValueEx(key, "BaseArgsSelection")
-            return value
-    except:
-        return "windivert_all"
-
-def set_base_args_selection(selection: str) -> bool:
-    """Сохраняет вариант базовых аргументов"""
-    try:
-        with winreg.CreateKey(winreg.HKEY_CURRENT_USER, DIRECT_PATH) as key:
-            winreg.SetValueEx(key, "BaseArgsSelection", 0, winreg.REG_SZ, selection)
-            log(f"Базовые аргументы: {selection}", "INFO")
-            return True
-    except Exception as e:
-        log(f"Ошибка сохранения базовых аргументов: {e}", "❌ ERROR")
-        return False
-
 def get_wssize_enabled() -> bool:
     """Получает настройку включения --wssize"""
-    try:
-        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, DIRECT_PATH) as key:
-            value, _ = winreg.QueryValueEx(key, "WSSizeEnabled")
-            return bool(value)
-    except:
-        return False
+    facade = _get_direct_preset_facade()
+    if facade is not None:
+        try:
+            return bool(facade.get_wssize_enabled())
+        except Exception:
+            return False
+    return False
 
 def set_wssize_enabled(enabled: bool) -> bool:
     """Сохраняет настройку --wssize"""
-    try:
-        with winreg.CreateKey(winreg.HKEY_CURRENT_USER, DIRECT_PATH) as key:
-            winreg.SetValueEx(key, "WSSizeEnabled", 0, winreg.REG_DWORD, int(enabled))
-            return True
-    except:
-        return False
+    facade = _get_direct_preset_facade()
+    if facade is not None:
+        try:
+            return bool(facade.set_wssize_enabled(bool(enabled)))
+        except Exception:
+            return False
+    return False
 
 def _category_to_reg_key(category_key: str) -> str:
     """Преобразует ключ категории в ключ реестра"""
@@ -451,52 +433,65 @@ def _category_to_reg_key(category_key: str) -> str:
     return "DirectStrategy" + ''.join(part.capitalize() for part in parts)
 
 
+def _get_direct_preset_facade():
+    try:
+        method = (get_strategy_launch_method() or "").strip().lower()
+        if method in ("direct_zapret2", "direct_zapret1"):
+            from core.presets.direct_facade import DirectPresetFacade
+
+            return DirectPresetFacade.from_launch_method(method)
+    except Exception:
+        pass
+    return None
+
+
 # ==================== DEBUG LOG НАСТРОЙКИ ====================
 
 def get_debug_log_enabled() -> bool:
     """Получает настройку включения логирования --debug"""
+    facade = _get_direct_preset_facade()
+    if facade is not None:
+        try:
+            return bool(facade.get_debug_log_enabled())
+        except Exception:
+            return False
     try:
-        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, DIRECT_PATH) as key:
-            value, _ = winreg.QueryValueEx(key, "DebugLogEnabled")
-            return bool(value)
-    except:
+        method = (get_strategy_launch_method() or "").strip().lower()
+        if method == "direct_zapret2_orchestra":
+            from preset_orchestra_zapret2 import PresetManager
+
+            return bool(PresetManager().get_debug_log_enabled())
+    except Exception:
         return False
+    return False
 
 def set_debug_log_enabled(enabled: bool) -> bool:
     """Сохраняет настройку логирования --debug"""
+    facade = _get_direct_preset_facade()
+    if facade is not None:
+        try:
+            return bool(facade.set_debug_log_enabled(bool(enabled)))
+        except Exception:
+            return False
     try:
-        with winreg.CreateKey(winreg.HKEY_CURRENT_USER, DIRECT_PATH) as key:
-            winreg.SetValueEx(key, "DebugLogEnabled", 0, winreg.REG_DWORD, int(enabled))
-            if enabled:
-                try:
-                    winreg.QueryValueEx(key, "DebugLogFile")
-                except Exception:
-                    from datetime import datetime
-                    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-                    winreg.SetValueEx(
-                        key,
-                        "DebugLogFile",
-                        0,
-                        winreg.REG_SZ,
-                        f"logs/zapret_winws2_debug_{timestamp}.log",
-                    )
-            else:
-                try:
-                    winreg.DeleteValue(key, "DebugLogFile")
-                except Exception:
-                    pass
-            return True
-    except:
+        method = (get_strategy_launch_method() or "").strip().lower()
+        if method == "direct_zapret2_orchestra":
+            from preset_orchestra_zapret2 import PresetManager
+
+            return bool(PresetManager().set_debug_log_enabled(bool(enabled)))
+    except Exception:
         return False
+    return False
 
 def get_debug_log_file() -> str:
     """Получает относительный путь к debug лог-файлу winws2 (без @)."""
-    try:
-        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, DIRECT_PATH) as key:
-            value, _ = winreg.QueryValueEx(key, "DebugLogFile")
-            return str(value or "")
-    except Exception:
-        return ""
+    facade = _get_direct_preset_facade()
+    if facade is not None:
+        try:
+            return str(facade.get_debug_log_file() or "")
+        except Exception:
+            return ""
+    return ""
 
 
 # ==================== ВЫБОРЫ СТРАТЕГИЙ ====================
@@ -562,14 +557,15 @@ def get_direct_strategy_selections() -> dict:
         if method == "direct_zapret2":
             try:
                 from core.services import get_direct_flow_coordinator
-                from preset_zapret2 import load_preset
+                from preset_zapret2.preset_manager import PresetManager
 
-                selected_name = (get_direct_flow_coordinator().get_selected_preset_name("direct_zapret2") or "").strip()
+                coordinator = get_direct_flow_coordinator()
+                selected_file_name = (coordinator.get_selected_source_file_name("direct_zapret2") or "").strip()
                 selections = {k: "none" for k in registry.get_all_category_keys()}
-                if selected_name:
-                    preset_path = get_direct_flow_coordinator().get_selected_source_path("direct_zapret2")
+                if selected_file_name:
+                    preset_path = coordinator.get_selected_source_path("direct_zapret2")
                     if preset_path.exists():
-                        preset = load_preset(selected_name)
+                        preset = PresetManager().get_selected_source_preset()
                         if preset is not None:
                             selections.update(
                                 {
@@ -585,14 +581,15 @@ def get_direct_strategy_selections() -> dict:
         elif method == "direct_zapret1":
             try:
                 from core.services import get_direct_flow_coordinator
-                from preset_zapret1 import load_preset_v1
+                from preset_zapret1.preset_manager import PresetManagerV1
 
-                selected_name = (get_direct_flow_coordinator().get_selected_preset_name("direct_zapret1") or "").strip()
+                coordinator = get_direct_flow_coordinator()
+                selected_file_name = (coordinator.get_selected_source_file_name("direct_zapret1") or "").strip()
                 selections = {k: "none" for k in registry.get_all_category_keys()}
-                if selected_name:
-                    preset_path = get_direct_flow_coordinator().get_selected_source_path("direct_zapret1")
+                if selected_file_name:
+                    preset_path = coordinator.get_selected_source_path("direct_zapret1")
                     if preset_path.exists():
-                        preset = load_preset_v1(selected_name)
+                        preset = PresetManagerV1().get_active_preset()
                         if preset is not None:
                             selections.update(
                                 {
@@ -1028,8 +1025,6 @@ __all__ = [
     'toggle_favorite_strategy_legacy',
     
     # Настройки прямого режима
-    'get_base_args_selection',
-    'set_base_args_selection',
     'get_wssize_enabled',
     'set_wssize_enabled',
 
@@ -1059,10 +1054,6 @@ __all__ = [
     'clear_all_strategy_ratings',
     'invalidate_ratings_cache',
     
-    # Алиасы для совместимости
-    'save_direct_strategy_selection',
-    'save_direct_strategy_selections',
-
     # Комбинирование стратегий
     'combine_strategies',
     'calculate_required_filters',
@@ -1074,10 +1065,6 @@ __all__ = [
     'invalidate_strategy_runner',
     'get_current_runner',
 ]
-
-# Алиасы для совместимости со старым кодом
-save_direct_strategy_selection = set_direct_strategy_for_category
-save_direct_strategy_selections = set_direct_strategy_selections
 
 # Re-export launcher functions for backwards compatibility
 from launcher_common import (

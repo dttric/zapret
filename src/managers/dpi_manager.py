@@ -87,7 +87,7 @@ class DPIManager(QObject):
         self._update_ui(running=True)
 
     def _start_direct_zapret1_mode(self):
-        """⚡ Запускает режим Zapret1 через generated launch config выбранного пресета"""
+        """⚡ Запускает режим Zapret1 через выбранный source-пресет"""
         try:
             from core.services import get_direct_flow_coordinator
 
@@ -99,7 +99,7 @@ class DPIManager(QObject):
             self._update_ui(running=False)
             return
 
-        log(f"Автозапуск Zapret1 из generated launch config: {profile.launch_config_path}", "INFO")
+        log(f"Автозапуск Zapret1 из выбранного source-пресета: {profile.launch_config_path}", "INFO")
         self.app.current_strategy_name = profile.display_name
         self.app.dpi_controller.start_dpi_async(selected_mode=strategy_data, launch_method="direct_zapret1")
         self._update_ui(running=True)

@@ -221,7 +221,7 @@ def combine_strategies_v1(**kwargs) -> dict:
         category_strategies = registry.get_default_selections()
 
     # ==================== BASE ARGUMENTS ====================
-    from strategy_menu import get_debug_log_enabled
+    from strategy_menu import get_debug_log_enabled, get_strategy_launch_method
     from config import LOGS_FOLDER
 
     # NO Lua initialization for V1 - winws.exe doesn't support Lua
@@ -300,7 +300,10 @@ def combine_strategies_v1(**kwargs) -> dict:
 
     # ==================== DEBUG LOG ====================
     # Added at the beginning of command line if enabled
-    if get_debug_log_enabled():
+    launch_method = (get_strategy_launch_method() or "").strip().lower()
+    allow_launch_injection = launch_method not in {"direct_zapret1", "direct_zapret2"}
+
+    if allow_launch_injection and get_debug_log_enabled():
         from datetime import datetime
         from log.log import cleanup_old_logs
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")

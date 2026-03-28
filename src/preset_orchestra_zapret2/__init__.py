@@ -9,7 +9,10 @@ Each preset contains:
 - Base arguments (lua-init, wf-*, blobs)
 - Category configurations (youtube, discord, etc.)
 
-Switching presets = writing preset content to preset-zapret2-orchestra.txt + DPI reload.
+This mode intentionally keeps its own active launch preset file
+`preset-zapret2-orchestra.txt` and does not share ordinary direct preset flow.
+Switching presets means rewriting that orchestra-specific active launch file
+and then reloading DPI.
 
 Usage:
     from preset_orchestra_zapret2 import PresetManager, Preset
@@ -237,13 +240,13 @@ def ensure_builtin_presets_exist() -> bool:
 
 def ensure_default_preset_exists() -> bool:
     """
-    Ensures that a default preset exists for direct_zapret2 mode.
+    Ensures that a default preset exists for direct_zapret2_orchestra mode.
 
-    Checks if preset-zapret2.txt exists. If not:
+    Checks if preset-zapret2-orchestra.txt exists. If not:
     1. Generates active preset from the default template.
 
     This function should be called during application startup
-    when running in direct_zapret2 mode.
+    when running in direct_zapret2_orchestra mode.
 
     Returns:
         True if preset exists or was created successfully
@@ -301,10 +304,10 @@ def ensure_default_preset_exists() -> bool:
 
 def restore_builtin_preset(preset_name: str) -> bool:
     """
-    Restores a preset from the template in presets_v2_template/.
+    Restores a preset from the orchestra template directory.
 
     Overwrites the preset in presets/ with the template content.
-    If the preset is currently active, also updates preset-zapret2.txt.
+    If the preset is currently active, also updates preset-zapret2-orchestra.txt.
 
     Returns:
         True if restore was successful, False otherwise
@@ -326,7 +329,7 @@ def restore_builtin_preset(preset_name: str) -> bool:
         _atomic_write_text(preset_path, content, encoding="utf-8")
         log(f"Restored preset '{canonical}' from template to {preset_path}", "INFO")
 
-        # If this preset is currently active, update preset-zapret2.txt
+        # If this preset is currently active, update preset-zapret2-orchestra.txt
         active_name = (get_active_preset_name() or "").strip()
         if active_name and active_name.lower() == canonical.lower():
             active_path = get_active_preset_path()

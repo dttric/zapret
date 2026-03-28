@@ -1310,26 +1310,34 @@ def parse_preset_content(content: str) -> PresetData:
     # Split by --new
     blocks_raw = []
     current_block = []
+    raw_blocks_with_comments = []
+    current_raw_block = []
 
     for line in block_lines:
         stripped = line.strip()
         if stripped == '--new':
             if current_block:
                 blocks_raw.append(current_block)
+                raw_blocks_with_comments.append(current_raw_block)
                 current_block = []
-        elif stripped and not stripped.startswith('#'):  # Ignore comments
-            current_block.append(stripped)
+                current_raw_block = []
+        elif stripped:
+            current_raw_block.append(stripped)
+            if not stripped.startswith('#'):  # Ignore comments only for semantic parsing
+                current_block.append(stripped)
 
     # Don't forget last block
     if current_block:
         blocks_raw.append(current_block)
+        raw_blocks_with_comments.append(current_raw_block)
 
     # Preserve raw block sequence for lossless parse -> generate -> parse.
-    data.raw_blocks = ['\n'.join(block) for block in blocks_raw]
+    data.raw_blocks = ['\n'.join(block) for block in raw_blocks_with_comments]
 
     # Parse each block
-    for block_lines_list in blocks_raw:
+    for idx, block_lines_list in enumerate(blocks_raw):
         block_args = '\n'.join(block_lines_list)
+        raw_block_args = '\n'.join(raw_blocks_with_comments[idx]) if idx < len(raw_blocks_with_comments) else block_args
 
         # Skip blocks without any selectors or port filters (empty/junk blocks)
         has_selectors = bool(re.search(r'--(hostlist|ipset|hostlist-domains|ipset-ip)=', block_args))
@@ -1465,7 +1473,7 @@ def parse_preset_content(content: str) -> PresetData:
                 args=block_args,
                 strategy_args=strategy_args,
                 syndata_dict=syndata_dict if syndata_dict else None,
-                raw_args=block_args,
+                raw_args=raw_block_args,
             )
 
             data.categories.append(block)

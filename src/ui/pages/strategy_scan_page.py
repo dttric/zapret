@@ -1443,17 +1443,18 @@ class StrategyScanPage(BasePage):
         """Copy the working strategy into the selected source preset."""
         try:
             from core.services import get_direct_flow_coordinator
-            from preset_zapret2 import PresetManager, get_preset_path
+            from preset_zapret2 import PresetManager
 
-            selected_name = (get_direct_flow_coordinator().get_selected_preset_name("direct_zapret2") or "").strip()
-            if not selected_name:
+            coordinator = get_direct_flow_coordinator()
+            selected_file_name = (coordinator.get_selected_source_file_name("direct_zapret2") or "").strip()
+            if not selected_file_name:
                 InfoBarHelper.warning(
                     self.window(),
                     "Ошибка",
                     "Не удалось определить выбранный пресет",
                 )
                 return
-            preset_path = get_preset_path(selected_name)
+            preset_path = coordinator.get_selected_source_path("direct_zapret2")
 
             target = self._scan_target or self._default_target_for_protocol(self._scan_protocol)
 
@@ -1515,12 +1516,6 @@ class StrategyScanPage(BasePage):
             )
 
             preset_path.write_text(updated_content, encoding="utf-8")
-            try:
-                from core.services import get_direct_flow_coordinator
-
-                get_direct_flow_coordinator().refresh_selected_runtime("direct_zapret2")
-            except Exception as e:
-                log(f"Не удалось обновить generated launch config после apply strategy: {e}", "DEBUG")
 
             InfoBarHelper.success(
                 self.window(),

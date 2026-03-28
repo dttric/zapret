@@ -119,9 +119,9 @@ class OrchestraZapret2DirectControlPage(Zapret2DirectControlPage):
 
     def _on_debug_log_toggled(self, enabled: bool) -> None:
         try:
-            from strategy_menu import set_debug_log_enabled
+            from preset_orchestra_zapret2 import PresetManager
 
-            set_debug_log_enabled(bool(enabled))
+            PresetManager().set_debug_log_enabled(bool(enabled))
         except Exception:
             pass
 

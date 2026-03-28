@@ -332,8 +332,8 @@ def update_changed_v1_templates_in_presets() -> int:
     touched.  Before overwriting, the old file is backed up to
     presets_v1/_builtin_version_backups/.
 
-    If the updated preset is currently selected, the generated runtime config
-    is regenerated through the direct flow.
+    If the updated preset is currently selected, direct flow refreshes
+    launch-ready state from that same source preset.
 
     Returns number of files updated.
     """

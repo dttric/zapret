@@ -1,4 +1,4 @@
-"""Core services for preset selection, runtime compilation, and autostart."""
+"""Core services for preset selection, launch flow, and autostart."""
 
 from .paths import AppPaths, EnginePaths
 

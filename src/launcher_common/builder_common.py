@@ -12,6 +12,15 @@ from strategy_menu.strategies_registry import registry
 from .blobs import build_args_with_deduped_blobs
 
 
+def _is_direct_source_preset_launch() -> bool:
+    try:
+        from strategy_menu import get_strategy_launch_method
+
+        return (get_strategy_launch_method() or "").strip().lower() in {"direct_zapret1", "direct_zapret2"}
+    except Exception:
+        return False
+
+
 def calculate_required_filters(category_strategies: dict) -> dict:
     """
     Автоматически вычисляет нужные фильтры портов на основе выбранных категорий.
@@ -70,7 +79,7 @@ def _apply_settings(args: str) -> str:
     result = args
 
     # ==================== ДОБАВЛЕНИЕ WSSIZE ====================
-    if get_wssize_enabled():
+    if not _is_direct_source_preset_launch() and get_wssize_enabled():
         # Добавляем --wssize 1:6 для TCP 443
         # Ищем место после базовых аргументов
         if "--wssize" not in result:

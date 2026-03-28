@@ -76,10 +76,10 @@ def _get_active_zapret2_preset():
         from preset_zapret2.preset_store import get_preset_store
 
         store = get_preset_store()
-        active_name = (store.get_active_preset_name() or "").strip()
-        if not active_name:
+        active_file_name = (store.get_selected_source_preset_file_name() or "").strip()
+        if not active_file_name:
             return None
-        return store.get_preset(active_name)
+        return store.get_preset_by_file_name(active_file_name)
     except Exception:
         return None
 

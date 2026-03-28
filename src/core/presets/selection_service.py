@@ -14,7 +14,7 @@ class PresetSelectionService:
         self._paths = paths
         self._repository = repository
 
-    def get_selected_preset_id(self, engine: str) -> str | None:
+    def get_selected_file_name(self, engine: str) -> str | None:
         path = self._selection_path(engine)
         if not path.exists():
             return None
@@ -22,23 +22,31 @@ class PresetSelectionService:
             payload = json.loads(path.read_text(encoding="utf-8"))
         except Exception:
             return None
-        value = str(payload.get("selected_preset_id") or "").strip()
-        return value or None
+        value = str(payload.get("selected_file_name") or "").strip()
+        if value:
+            return value
+        legacy_id = str(payload.get("selected_preset_id") or "").strip()
+        if legacy_id:
+            return self._repository.resolve_legacy_id(engine, legacy_id)
+        return None
+
+    def get_selected_preset_id(self, engine: str) -> str | None:
+        return self.get_selected_file_name(engine)
 
     def get_selected_preset(self, engine: str) -> PresetDocument | None:
-        preset_id = self.get_selected_preset_id(engine)
-        if not preset_id:
+        file_name = self.get_selected_file_name(engine)
+        if not file_name:
             return None
-        return self._repository.get_preset(engine, preset_id)
+        return self._repository.get_preset(engine, file_name)
 
-    def select_preset(self, engine: str, preset_id: str) -> PresetDocument:
-        preset = self._repository.get_preset(engine, preset_id)
+    def select_preset(self, engine: str, file_name: str) -> PresetDocument:
+        preset = self._repository.get_preset(engine, file_name)
         if preset is None:
-            raise ValueError(f"Preset not found: {preset_id}")
+            raise ValueError(f"Preset not found: {file_name}")
         path = self._selection_path(engine)
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(
-            json.dumps({"selected_preset_id": preset.manifest.id}, ensure_ascii=False, indent=2) + "\n",
+            json.dumps({"selected_file_name": preset.manifest.file_name}, ensure_ascii=False, indent=2) + "\n",
             encoding="utf-8",
         )
         return preset
@@ -49,30 +57,39 @@ class PresetSelectionService:
         except FileNotFoundError:
             pass
 
-    def ensure_can_delete(self, engine: str, preset_id: str) -> None:
-        selected_id = self.get_selected_preset_id(engine)
-        if selected_id and selected_id == preset_id:
+    def ensure_can_delete(self, engine: str, file_name: str) -> None:
+        selected_file_name = self.get_selected_file_name(engine)
+        if selected_file_name and selected_file_name.strip().lower() == str(file_name or "").strip().lower():
             raise ValueError("Cannot delete the selected preset")
 
-    def ensure_selected_preset(self, engine: str, preferred_name: str = "Default") -> PresetDocument | None:
+    def ensure_selected_preset(self, engine: str, preferred_file_name: str | None = "Default.txt") -> PresetDocument | None:
         current = self.get_selected_preset(engine)
         if current is not None:
             return current
 
-        preferred = self._repository.find_preset_by_name(engine, preferred_name)
-        if preferred is not None:
-            return self.select_preset(engine, preferred.manifest.id)
+        preferred_key = str(preferred_file_name or "").strip()
+        if preferred_key:
+            preferred = self._repository.get_preset(engine, preferred_key)
+            if preferred is not None:
+                return self.select_preset(engine, preferred.manifest.file_name)
 
         presets = self._repository.list_presets(engine)
         if not presets:
             return None
-        return self.select_preset(engine, presets[0].manifest.id)
+        return self.select_preset(engine, presets[0].manifest.file_name)
 
     def select_preset_by_name(self, engine: str, name: str) -> PresetDocument:
-        preset = self._repository.find_preset_by_name(engine, name)
-        if preset is None:
+        target = str(name or "").strip().lower()
+        matches = [
+            preset
+            for preset in self._repository.list_presets(engine)
+            if preset.manifest.name.strip().lower() == target
+        ]
+        if not matches:
             raise ValueError(f"Preset not found: {name}")
-        return self.select_preset(engine, preset.manifest.id)
+        if len(matches) > 1:
+            raise ValueError(f"Multiple presets share the same display name: {name}")
+        return self.select_preset(engine, matches[0].manifest.file_name)
 
     def _selection_path(self, engine: str) -> Path:
         return self._paths.engine_paths(engine).ensure_directories().selected_state_path

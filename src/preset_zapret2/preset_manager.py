@@ -19,8 +19,6 @@ from .preset_model import (
 )
 from .mode_projection import normalize_direct_zapret2_ui_mode, project_preset_for_direct_ui_mode
 from .preset_storage import (
-    get_preset_path,
-    preset_exists,
     save_preset,
 )
 
@@ -87,31 +85,17 @@ class PresetManager:
         Returns:
             List of preset names sorted alphabetically
         """
-        return self._get_store().get_preset_names()
+        store = self._get_store()
+        return [store.get_display_name(file_name) for file_name in store.get_preset_file_names()]
 
-    def preset_exists(self, name: str) -> bool:
-        """
-        Checks if preset exists.
+    def list_preset_file_names(self) -> List[str]:
+        return self._get_store().get_preset_file_names()
 
-        Args:
-            name: Preset name
+    def preset_file_exists(self, file_name: str) -> bool:
+        return self._get_store().get_preset_by_file_name(file_name) is not None
 
-        Returns:
-            True if preset file exists
-        """
-        return self._get_store().preset_exists(name)
-
-    def load_preset(self, name: str) -> Optional[Preset]:
-        """
-        Loads preset by name from the central PresetStore (in-memory).
-
-        Args:
-            name: Preset name
-
-        Returns:
-            Preset object or None if not found
-        """
-        return self._get_store().get_preset(name)
+    def load_preset_by_file_name(self, file_name: str) -> Optional[Preset]:
+        return self._get_store().get_preset_by_file_name(file_name)
 
     def load_all_presets(self) -> List[Preset]:
         """
@@ -121,8 +105,13 @@ class PresetManager:
             List of all Preset objects, sorted by name.
         """
         store = self._get_store()
-        all_presets = store.get_all_presets()
-        return [all_presets[n] for n in sorted(all_presets.keys(), key=lambda s: s.lower())]
+        names = store.get_preset_file_names()
+        result: List[Preset] = []
+        for file_name in names:
+            preset = store.get_preset_by_file_name(file_name)
+            if preset is not None:
+                result.append(preset)
+        return result
 
     def save_preset(self, preset: Preset) -> bool:
         """
@@ -145,30 +134,65 @@ class PresetManager:
             self.invalidate_preset_cache(preset.name)
         return result
 
+    def delete_preset_by_file_name(self, file_name: str) -> bool:
+        try:
+            document = self._get_facade().get_document_by_file_name(file_name)
+            active_file_name = self.get_selected_source_preset_file_name()
+            if document is not None and active_file_name and document.manifest.file_name == active_file_name:
+                log(f"Cannot delete selected preset '{file_name}'", "WARNING")
+                return False
+            self._get_facade().delete_by_file_name(file_name)
+            self._notify_list_changed()
+            return True
+        except Exception as e:
+            log(f"Error deleting preset '{file_name}': {e}", "ERROR")
+            return False
+
+    def rename_preset_by_file_name(self, file_name: str, new_name: str) -> bool:
+        try:
+            document = self._get_facade().get_document_by_file_name(file_name)
+            active_file_name = self.get_selected_source_preset_file_name()
+            was_selected = bool(document is not None and active_file_name and document.manifest.file_name == active_file_name)
+            updated = self._get_facade().rename_by_file_name(file_name, new_name)
+            if was_selected:
+                self._get_store().notify_preset_switched(updated.manifest.file_name)
+            self._notify_list_changed()
+            return True
+        except Exception as e:
+            log(f"Error renaming preset '{file_name}' -> '{new_name}': {e}", "ERROR")
+            return False
+
+    def duplicate_preset_by_file_name(self, file_name: str, new_name: str) -> bool:
+        try:
+            self._get_facade().duplicate_by_file_name(file_name, new_name)
+            self._notify_list_changed()
+            return True
+        except Exception as e:
+            log(f"Error duplicating preset '{file_name}' -> '{new_name}': {e}", "ERROR")
+            return False
+
+    def export_preset_by_file_name(self, file_name: str, dest_path: Path) -> bool:
+        try:
+            self._get_facade().export_plain_text_by_file_name(file_name, dest_path)
+            return True
+        except Exception as e:
+            log(f"Error exporting preset '{file_name}' to '{dest_path}': {e}", "ERROR")
+            return False
+
     # ========================================================================
     # SELECTED SOURCE PRESET OPERATIONS
     # ========================================================================
 
-    def get_selected_source_preset_name(self) -> Optional[str]:
-        """
-        Gets name of the currently selected source preset.
-
-        Returns:
-            Selected source preset name or None
-        """
+    def get_selected_source_preset_file_name(self) -> Optional[str]:
         try:
             from core.services import get_direct_flow_coordinator
 
-            return get_direct_flow_coordinator().get_selected_source_preset_name("direct_zapret2")
+            return get_direct_flow_coordinator().get_selected_source_file_name("direct_zapret2")
         except Exception:
             try:
-                return self._get_store().get_selected_source_preset_name()
+                return self._get_store().get_selected_source_preset_file_name()
             except Exception:
                 return None
-
-    def get_active_preset_name(self) -> Optional[str]:
-        """Compatibility alias for get_selected_source_preset_name()."""
-        return self.get_selected_source_preset_name()
 
     def get_selected_source_preset(self) -> Optional[Preset]:
         """
@@ -189,10 +213,10 @@ class PresetManager:
                 # Cache is valid
                 return self._active_preset_cache
 
-        name = self.get_selected_source_preset_name()
+        file_name = self.get_selected_source_preset_file_name()
         preset = None
-        if name:
-            base_preset = self.load_preset(name)
+        if file_name:
+            base_preset = self.load_preset_by_file_name(file_name)
             if base_preset is not None:
                 preset = project_preset_for_direct_ui_mode(base_preset, current_mode)
 
@@ -257,7 +281,13 @@ class PresetManager:
         try:
             from core.services import get_selection_service
 
-            get_selection_service().select_preset_by_name("winws2", name)
+            selection = get_selection_service()
+            store = self._get_store()
+            file_name = store._resolve_file_name(name) if hasattr(store, "_resolve_file_name") else None
+            if file_name:
+                selection.select_preset("winws2", file_name)
+            else:
+                selection.select_preset_by_name("winws2", name)
             self._invalidate_active_preset_cache()
             return True
         except Exception as e:
@@ -296,136 +326,18 @@ class PresetManager:
         Returns:
             Created Preset or None on error
         """
-        if self.preset_exists(name):
-            log(f"Cannot create: preset '{name}' already exists", "WARNING")
-            return None
-
         try:
-            self._get_facade().create(name, from_current=from_current)
+            created = self._get_facade().create(name, from_current=from_current)
             self._notify_list_changed()
             log(f"Created preset '{name}'", "INFO")
-            return self.load_preset(name)
+            return self.load_preset_by_file_name(created.manifest.file_name)
         except Exception as e:
             log(f"Error creating preset: {e}", "ERROR")
             return None
 
-    def delete_preset(self, name: str) -> bool:
-        """
-        Deletes preset.
-
-        Cannot delete the currently selected preset.
-
-        Args:
-            name: Preset name
-
-        Returns:
-            True if deleted
-        """
-        # Check if active
-        active_name = self.get_active_preset_name()
-        if active_name == name:
-            log(f"Cannot delete selected preset '{name}'", "WARNING")
-            return False
-
-        try:
-            self._get_facade().delete(name)
-            self._notify_list_changed()
-            return True
-        except Exception as e:
-            log(f"Error deleting preset '{name}': {e}", "ERROR")
-            return False
-
-    def rename_preset(self, old_name: str, new_name: str) -> bool:
-        """
-        Renames preset.
-
-        Updates the selected preset if the renamed preset was selected.
-
-        Args:
-            old_name: Current name
-            new_name: New name
-
-        Returns:
-            True if renamed
-        """
-        try:
-            was_selected = self.get_active_preset_name() == old_name
-            self._get_facade().rename(old_name, new_name)
-            if was_selected:
-                self._get_store().notify_preset_switched(new_name)
-            self._notify_list_changed()
-            return True
-        except Exception as e:
-            log(f"Error renaming preset '{old_name}' -> '{new_name}': {e}", "ERROR")
-            return False
-
-    def duplicate_preset(self, name: str, new_name: str) -> bool:
-        """
-        Creates a copy of preset.
-
-        Args:
-            name: Source preset name
-            new_name: Name for the copy
-
-        Returns:
-            True if duplicated
-        """
-        try:
-            self._get_facade().duplicate(name, new_name)
-            self._notify_list_changed()
-            return True
-        except Exception as e:
-            log(f"Error duplicating preset '{name}' -> '{new_name}': {e}", "ERROR")
-            return False
-
-    # ========================================================================
-    # IMPORT/EXPORT OPERATIONS
-    # ========================================================================
-
-    def export_preset(self, name: str, dest_path: Path) -> bool:
-        """
-        Exports preset to external file.
-
-        Args:
-            name: Preset name
-            dest_path: Destination path
-
-        Returns:
-            True if exported
-        """
-        try:
-            self._get_facade().export_plain_text(name, dest_path)
-            return True
-        except Exception as e:
-            log(f"Error exporting preset '{name}' to '{dest_path}': {e}", "ERROR")
-            return False
-
-    def import_preset(self, src_path: Path, name: Optional[str] = None) -> bool:
-        """
-        Imports preset from external file.
-
-        Copies the file to both presets_v2_template/ (as reset source)
-        and presets/ (as editable copy).
-
-        Args:
-            src_path: Source file path
-            name: Optional name (uses filename if None)
-
-        Returns:
-            True if imported
-        """
-        try:
-            actual_name = name if name else Path(src_path).stem
-            self._get_facade().import_from_file(src_path, actual_name)
-            self._notify_list_changed()
-            return True
-        except Exception as e:
-            log(f"Error importing preset '{src_path}' as '{name}': {e}", "ERROR")
-            return False
-
     def sync_preset_to_active_file(self, preset: Preset, changed_category: str = None) -> bool:
         """
-        Regenerates the generated launch config from a source preset.
+        Saves the selected source preset in launch-ready form.
 
         Use this when editing the selected source preset without re-selecting it.
         Triggers DPI reload.
@@ -488,7 +400,7 @@ class PresetManager:
         Args:
             category_key: Category name
             syndata: New syndata settings
-            save_and_sync: If True, save preset and sync the generated launch config
+            save_and_sync: If True, save preset and refresh the selected source preset
             protocol: "tcp" or "udp" (udp also covers QUIC/L7)
 
         Returns:
@@ -554,7 +466,7 @@ class PresetManager:
         Args:
             category_key: Category name
             filter_mode: "hostlist" or "ipset"
-            save_and_sync: If True, save preset and sync the generated launch config
+            save_and_sync: If True, save preset and refresh the selected source preset
 
         Returns:
             True if successful
@@ -612,7 +524,7 @@ class PresetManager:
         Args:
             category_key: Category name
             sort_order: "default", "name_asc", or "name_desc"
-            save_and_sync: If True, save preset and sync the generated launch config
+            save_and_sync: If True, save preset and refresh the selected source preset
 
         Returns:
             True if successful
@@ -680,7 +592,8 @@ class PresetManager:
         default_settings = get_default_category_settings().get(category_key) or {}
 
         # Prefer defaults from the selected preset's matching template.
-        active_preset_name = (self.get_active_preset_name() or preset.name or "").strip()
+        selected_preset = self.get_selected_source_preset()
+        active_preset_name = (getattr(selected_preset, "name", "") or preset.name or "").strip()
         category_key_l = str(category_key or "").strip().lower()
         try:
             try:
@@ -829,7 +742,8 @@ class PresetManager:
         except Exception:
             current_strategy_set = None
 
-        preset_name = self.get_active_preset_name() or "Current"
+        active_preset = self.get_active_preset()
+        preset_name = (getattr(active_preset, "name", "") or "Current").strip() or "Current"
 
         try:
             try:
@@ -859,7 +773,7 @@ class PresetManager:
             # Build Preset model, then reuse sync logic to generate a proper launch config
             # (including absolute list paths and normalized base filters).
             preset = Preset(name=preset_name, base_args=data.base_args)
-            existing = self.load_preset(preset_name) if preset_exists(preset_name) else None
+            existing = self.get_active_preset()
             if existing:
                 preset.created = existing.created
                 preset.description = existing.description
@@ -923,7 +837,7 @@ class PresetManager:
                 cat.strategy_id = inferred or "none"
 
             # Persist reset into the preset file.
-            if preset.name and preset.name != "Current" and preset_exists(preset.name):
+            if preset.name and preset.name != "Current":
                 save_preset(preset)
                 self.invalidate_preset_cache(preset.name)
 
@@ -952,30 +866,29 @@ class PresetManager:
             except Exception:
                 pass
 
-            names = sorted(self.list_presets(), key=lambda s: s.lower())
-            if not names:
+            file_names = sorted(self.list_preset_file_names(), key=lambda s: s.lower())
+            if not file_names:
                 return (success_count, total_count, failed)
 
-            name_by_key = {name.lower(): name for name in names}
-            original_active = (self.get_active_preset_name() or "").strip()
-            active_name = name_by_key.get(original_active.lower(), "") if original_active else ""
-            if not active_name:
-                active_name = name_by_key.get("default", "") or names[0]
+            original_active_file_name = (self.get_selected_source_preset_file_name() or "").strip()
+            active_file_name = original_active_file_name if original_active_file_name in file_names else ""
+            if not active_file_name:
+                active_file_name = "Default.txt" if "Default.txt" in file_names else file_names[0]
 
-            if active_name:
+            if active_file_name:
                 try:
                     from core.services import get_direct_flow_coordinator
 
-                    profile = get_direct_flow_coordinator().select_preset("direct_zapret2", active_name)
+                    profile = get_direct_flow_coordinator().select_preset_file_name("direct_zapret2", active_file_name)
                     self._invalidate_active_preset_cache()
-                    self._get_store().notify_preset_switched(profile.preset_name)
+                    self._get_store().notify_preset_switched(profile.preset_file_name)
                     if self.on_preset_switched:
                         try:
                             self.on_preset_switched(profile.preset_name)
                         except Exception:
                             pass
                 except Exception as e:
-                    log(f"Bulk reset: failed to re-apply selected preset '{active_name}': {e}", "WARNING")
+                    log(f"Bulk reset: failed to re-apply selected preset '{active_file_name}': {e}", "WARNING")
 
             return (success_count, total_count, failed)
         except Exception as e:
@@ -1001,7 +914,7 @@ class PresetManager:
 
         Overwrites:
         - presets/{preset_name}.txt
-        - generated launch config (if sync_active_file=True)
+        - selected source preset state (if sync_active_file=True)
         """
         from .preset_defaults import (
             get_template_content,
@@ -1100,7 +1013,7 @@ class PresetManager:
             do_sync = bool(sync_active_file)
             if do_sync and not make_active:
                 try:
-                    current_active = (self.get_active_preset_name() or "").strip().lower()
+                    current_active = str(getattr(self.get_active_preset(), "name", "") or "").strip().lower()
                 except Exception:
                     current_active = ""
                 if current_active != name.lower():
@@ -1110,20 +1023,21 @@ class PresetManager:
                 if not self._select_source_preset(name):
                     return False
 
-            # Sync generated launch config through the regular preset sync path.
+            # Refresh launch-ready source preset state through the regular save path.
             if do_sync:
                 try:
-                    preset = self.load_preset(name)
+                    document = self._get_facade().get_document(name)
+                    preset = self.load_preset_by_file_name(document.manifest.file_name) if document is not None else None
                     if preset is None:
                         log(f"Cannot sync reset preset '{name}': failed to reload source preset", "ERROR")
                         return False
                     if not self.sync_preset_to_active_file(preset):
                         return False
                 except PermissionError as e:
-                    log(f"Cannot write generated launch config (locked by winws2?): {e}", "ERROR")
+                    log(f"Cannot write selected source preset (locked by winws2?): {e}", "ERROR")
                     raise
                 except Exception as e:
-                    log(f"Error syncing reset preset '{name}' to generated launch config: {e}", "ERROR")
+                    log(f"Error saving reset preset '{name}' into selected source preset: {e}", "ERROR")
                     return False
 
             if make_active:
@@ -1149,7 +1063,7 @@ class PresetManager:
 
     def _save_and_sync_preset(self, preset: Preset, changed_category: str = None) -> bool:
         """
-        Saves preset to file and syncs the generated launch config.
+        Saves preset to file and refreshes the selected source preset state.
 
         Args:
             preset: Preset to save
@@ -1168,7 +1082,7 @@ class PresetManager:
             save_preset(preset)
             self.invalidate_preset_cache(preset.name)
 
-        # Then sync the generated launch config (triggers DPI reload via callback)
+        # Then refresh the selected source preset state (triggers DPI reload via callback)
         # Note: sync_preset_to_active_file() already invalidates active cache
         return self.sync_preset_to_active_file(preset, changed_category=changed_category)
 
@@ -1236,7 +1150,7 @@ class PresetManager:
         Args:
             category_key: Category name (e.g., "youtube")
             strategy_id: Strategy ID (e.g., "youtube_tcp_split") or "none"
-            save_and_sync: If True, save preset and sync the generated launch config
+            save_and_sync: If True, save preset and refresh the selected source preset
 
         Returns:
             True if successful
@@ -1371,7 +1285,7 @@ class PresetManager:
 
         Args:
             selections: Dict of category_key -> strategy_id
-            save_and_sync: If True, save preset and sync the generated launch config
+            save_and_sync: If True, save preset and refresh the selected source preset
 
         Returns:
             True if successful

@@ -4,24 +4,31 @@ import os
 from datetime import datetime
 from typing import Callable, Optional
 
-from config import REGISTRY_PATH
 from log import log
 
 from .ports import subtract_port_specs, union_port_specs
 from .preset_model import DEFAULT_PRESET_ICON_COLOR, Preset, normalize_preset_icon_color
-from .preset_storage import get_runtime_config_path
+from .preset_storage import get_active_preset_path
 
 
 def _strip_debug_from_base_args(base_args: str) -> str:
-    """Keep runtime-only --debug out of source preset content."""
+    """Remove duplicate debug lines but keep the first explicit source-preset value."""
     try:
         lines = (base_args or "").splitlines()
         kept: list[str] = []
+        seen_debug = False
         for raw in lines:
             stripped = raw.strip()
             if not stripped:
                 continue
-            if stripped.lower().startswith("--debug"):
+            if stripped.lower().startswith("--debug="):
+                if seen_debug:
+                    continue
+                seen_debug = True
+                value = stripped.split("=", 1)[1].strip() if "=" in stripped else ""
+                value = value.lstrip("@").replace("\\", "/").lstrip("/")
+                if value:
+                    kept.append(f"--debug=@{value}")
                 continue
             kept.append(stripped)
         return "\n".join(kept).strip()
@@ -30,49 +37,8 @@ def _strip_debug_from_base_args(base_args: str) -> str:
 
 
 def inject_debug_into_base_args(base_args: str) -> str:
-    """Apply runtime --debug injection from direct_zapret2 registry settings."""
-    import winreg
-
-    cleaned = _strip_debug_from_base_args(base_args)
-
-    enabled = False
-    debug_file = ""
-    try:
-        direct_path = rf"{REGISTRY_PATH}\DirectMethod"
-        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, direct_path) as key:
-            value, _ = winreg.QueryValueEx(key, "DebugLogEnabled")
-            enabled = bool(value)
-            try:
-                debug_file, _ = winreg.QueryValueEx(key, "DebugLogFile")
-            except Exception:
-                debug_file = ""
-    except Exception:
-        enabled = False
-
-    if not enabled:
-        return cleaned
-
-    if not debug_file:
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        debug_file = f"logs/zapret_winws2_debug_{timestamp}.log"
-        try:
-            direct_path = rf"{REGISTRY_PATH}\DirectMethod"
-            with winreg.CreateKey(winreg.HKEY_CURRENT_USER, direct_path) as key:
-                winreg.SetValueEx(key, "DebugLogFile", 0, winreg.REG_SZ, debug_file)
-        except Exception:
-            pass
-
-    debug_file_norm = str(debug_file).replace("\\", "/").lstrip("@").lstrip("/")
-    debug_line = f"--debug=@{debug_file_norm}"
-
-    lines = cleaned.splitlines() if cleaned else []
-    insert_at = 0
-    for i, raw in enumerate(lines):
-        if raw.strip().startswith("--lua-init="):
-            insert_at = i + 1
-
-    lines.insert(insert_at, debug_line)
-    return "\n".join(lines).strip()
+    """Preserve explicit --debug from the source preset without registry injection."""
+    return _strip_debug_from_base_args(base_args)
 
 
 def update_wf_out_ports_in_base_args(preset: Preset) -> str:
@@ -248,7 +214,7 @@ def update_wf_out_ports_in_base_args(preset: Preset) -> str:
     return "\n".join(lines).strip()
 
 
-def sync_preset_to_runtime(
+def save_preset_to_source(
     preset: Preset,
     *,
     changed_category: str | None = None,
@@ -279,7 +245,7 @@ class Zapret2PresetSyncLayer:
         self._update_wf_out_ports_in_base_args = update_wf_out_ports_in_base_args or (lambda preset: preset.base_args)
 
     def sync_preset(self, preset: Preset, changed_category: str | None = None) -> bool:
-        active_path = get_runtime_config_path()
+        active_path = get_active_preset_path()
         is_basic_direct = self._is_basic_direct()
 
         try:
@@ -295,10 +261,10 @@ class Zapret2PresetSyncLayer:
                 )
             return self._sync_full_regeneration(preset, active_path=str(active_path), is_basic_direct=is_basic_direct)
         except PermissionError as e:
-            log(f"Cannot write generated launch config (locked by winws2?): {e}", "ERROR")
+            log(f"Cannot write selected source preset (locked by winws2?): {e}", "ERROR")
             raise
         except Exception as e:
-            log(f"Error syncing to generated launch config: {e}", "ERROR")
+            log(f"Error saving selected source preset: {e}", "ERROR")
             return False
 
     @staticmethod
@@ -392,7 +358,7 @@ class Zapret2PresetSyncLayer:
         content = "\n".join(lines)
         return self._commit_generated_launch_config_text(
             content,
-            log_message=f"Synced preset to generated launch config (raw block preservation, changed: {changed_category})",
+            log_message=f"Saved selected source preset with raw block preservation (changed: {changed_category})",
         )
 
     def _build_category_block_text(
@@ -449,7 +415,7 @@ class Zapret2PresetSyncLayer:
             # In basic direct mode strategy text stays authoritative, but source
             # preset parsing may already have lifted structured out-range/send/
             # syndata into category settings. Restore only the missing helper
-            # lines so effective.txt preserves the source preset behaviour
+            # lines so the selected source preset preserves the same behaviour
             # without duplicating raw tokens that are still present in args.
             helper_lines: list[str] = []
 
@@ -578,13 +544,13 @@ class Zapret2PresetSyncLayer:
         success = generate_preset_file(data, active_path, atomic=True)
         if success:
             self._invalidate_cache()
-            log("Synced preset to generated launch config", "DEBUG")
+            log("Saved preset model into selected source preset", "DEBUG")
             if self._on_dpi_reload_needed:
                 self._on_dpi_reload_needed()
         return success
 
     def _commit_generated_launch_config_text(self, content: str, *, log_message: str) -> bool:
-        active_path = get_runtime_config_path()
+        active_path = get_active_preset_path()
         try:
             active_path.parent.mkdir(parents=True, exist_ok=True)
             active_path.write_text(str(content or ""), encoding="utf-8")
@@ -594,8 +560,8 @@ class Zapret2PresetSyncLayer:
                 self._on_dpi_reload_needed()
             return True
         except PermissionError as e:
-            log(f"Cannot write generated launch config (locked by winws2?): {e}", "ERROR")
+            log(f"Cannot write selected source preset (locked by winws2?): {e}", "ERROR")
             raise
         except Exception as e:
-            log(f"Error writing generated launch config: {e}", "ERROR")
+            log(f"Error writing selected source preset: {e}", "ERROR")
             return False

@@ -50,7 +50,7 @@ def _storage_dir() -> Path:
 
 def _default_state() -> dict:
     return {
-        "version": 1,
+        "version": 2,
         "top_level_order": list(DEFAULT_TOP_LEVEL_ORDER),
         "folder_state": {},
         "folders": [],
@@ -148,6 +148,8 @@ def _folder_depth(folder_id: str, by_id: dict[str, dict]) -> int:
 class PresetHierarchyStore:
     scope_key: str
     _state: dict | None = None
+    _display_name_by_key: dict[str, str] | None = None
+    _keys_by_display_name: dict[str, set[str]] | None = None
 
     @property
     def state_path(self) -> Path:
@@ -174,9 +176,9 @@ class PresetHierarchyStore:
 
         presets = {}
         for key, raw in (state.get("presets", {}) or {}).items():
-            preset_name = str(key or "").strip()
-            if preset_name and isinstance(raw, dict):
-                presets[preset_name] = _normalize_preset_meta(raw)
+            preset_key = str(key or "").strip()
+            if preset_key and isinstance(raw, dict):
+                presets[preset_key] = _normalize_preset_meta(raw)
 
         folder_state = {}
         for key, raw in (state.get("folder_state", {}) or {}).items():
@@ -197,12 +199,14 @@ class PresetHierarchyStore:
                 top_level_order.append(folder_id)
 
         self._state = {
-            "version": 1,
+            "version": 2,
             "folders": folders,
             "presets": presets,
             "folder_state": folder_state,
             "top_level_order": top_level_order or list(DEFAULT_TOP_LEVEL_ORDER),
         }
+        self._display_name_by_key = {}
+        self._keys_by_display_name = {}
         self._normalize_state()
 
     def _normalize_state(self) -> None:
@@ -297,21 +301,132 @@ class PresetHierarchyStore:
                 return out
         return None
 
-    def get_preset_meta(self, preset_name: str) -> dict:
+    def _normalize_preset_entries(
+        self,
+        presets: Iterable[object],
+        *,
+        is_builtin_name: Callable[[str], bool] | None = None,
+    ) -> list[dict]:
+        builtin_resolver = is_builtin_name or (lambda _name: False)
+        entries: list[dict] = []
+        seen_keys: set[str] = set()
+
+        for raw in presets:
+            if isinstance(raw, dict):
+                key = str(raw.get("file_name") or raw.get("key") or raw.get("name") or "").strip()
+                display_name = str(raw.get("display_name") or raw.get("name") or "").strip()
+                builtin_value = raw.get("is_builtin")
+            else:
+                key = str(raw or "").strip()
+                display_name = key
+                builtin_value = None
+
+            if not key:
+                continue
+            if not display_name:
+                display_name = Path(key).stem or key
+            lowered_key = key.lower()
+            if lowered_key in seen_keys:
+                continue
+            seen_keys.add(lowered_key)
+
+            if builtin_value is None:
+                is_builtin = bool(builtin_resolver(display_name))
+            else:
+                is_builtin = bool(builtin_value)
+
+            entries.append(
+                {
+                    "key": key,
+                    "display_name": display_name,
+                    "is_builtin": is_builtin,
+                }
+            )
+
+        return entries
+
+    def _register_entries(self, entries: list[dict]) -> None:
+        self._display_name_by_key = {}
+        self._keys_by_display_name = {}
+        for entry in entries:
+            key = str(entry.get("key") or "").strip()
+            display_name = str(entry.get("display_name") or "").strip() or key
+            if not key:
+                continue
+            self._display_name_by_key[key] = display_name
+            self._keys_by_display_name.setdefault(display_name.lower(), set()).add(key)
+
+    def _resolve_preset_key(self, preset_key: str, *, display_name: str | None = None) -> str:
         self._ensure_loaded()
         assert self._state is not None
-        key = str(preset_name or "").strip()
+
+        candidate = str(preset_key or "").strip()
+        if candidate and candidate in self._state["presets"]:
+            return candidate
+        if self._display_name_by_key and candidate and candidate in self._display_name_by_key:
+            return candidate
+
+        lookup_names: list[str] = []
+        if candidate:
+            lookup_names.append(candidate)
+        display = str(display_name or "").strip()
+        if display and display.lower() not in {item.lower() for item in lookup_names}:
+            lookup_names.append(display)
+
+        for lookup in lookup_names:
+            keys = (self._keys_by_display_name or {}).get(lookup.lower()) or set()
+            if len(keys) == 1:
+                return next(iter(keys))
+            if lookup in self._state["presets"]:
+                return lookup
+
+        return candidate or display
+
+    def _migrate_legacy_meta_keys(self, entries: list[dict]) -> None:
+        self._ensure_loaded()
+        assert self._state is not None
+
+        changed = False
+        for entry in entries:
+            key = str(entry.get("key") or "").strip()
+            display_name = str(entry.get("display_name") or "").strip()
+            if not key or not display_name or key == display_name:
+                continue
+            if key in self._state["presets"]:
+                continue
+            raw = self._state["presets"].pop(display_name, None)
+            if raw is None:
+                continue
+            self._state["presets"][key] = _normalize_preset_meta(raw)
+            changed = True
+
+        if changed:
+            self._save()
+
+    def get_preset_meta(self, preset_name: str, *, display_name: str | None = None) -> dict:
+        self._ensure_loaded()
+        assert self._state is not None
+        key = self._resolve_preset_key(preset_name, display_name=display_name)
         raw = self._state["presets"].get(key) or {}
         return _normalize_preset_meta(raw)
 
-    def rename_preset_meta(self, old_name: str, new_name: str) -> None:
+    def rename_preset_meta(
+        self,
+        old_name: str,
+        new_name: str,
+        *,
+        old_display_name: str | None = None,
+        new_display_name: str | None = None,
+    ) -> None:
         self._ensure_loaded()
         assert self._state is not None
-        old_key = str(old_name or "").strip()
+        old_key = self._resolve_preset_key(old_name, display_name=old_display_name)
         new_key = str(new_name or "").strip()
         if not old_key or not new_key or old_key == new_key:
             return
         raw = self._state["presets"].pop(old_key, None)
+        if raw is None and old_display_name:
+            raw = self._state["presets"].pop(str(old_display_name).strip(), None)
         if raw is not None:
             self._state["presets"][new_key] = _normalize_preset_meta(raw)
             self._save()
@@ -321,10 +436,13 @@ class PresetHierarchyStore:
         source_name: str,
         new_name: str,
         *,
+        source_display_name: str | None = None,
+        new_display_name: str | None = None,
         reset_pin: bool = True,
         reset_rating: bool = True,
     ) -> None:
-        source = self.get_preset_meta(source_name)
+        _ = new_display_name
+        source = self.get_preset_meta(source_name, display_name=source_display_name)
         copied = dict(source)
         if reset_pin:
             copied["pinned"] = False
@@ -333,38 +451,38 @@ class PresetHierarchyStore:
         copied["order"] = None
         self._set_preset_meta(new_name, copied)
 
-    def delete_preset_meta(self, preset_name: str) -> None:
+    def delete_preset_meta(self, preset_name: str, *, display_name: str | None = None) -> None:
         self._ensure_loaded()
         assert self._state is not None
-        key = str(preset_name or "").strip()
+        key = self._resolve_preset_key(preset_name, display_name=display_name)
         if not key:
             return
         if self._state["presets"].pop(key, None) is not None:
             self._save()
 
-    def toggle_preset_pin(self, preset_name: str) -> bool:
-        meta = self.get_preset_meta(preset_name)
+    def toggle_preset_pin(self, preset_name: str, *, display_name: str | None = None) -> bool:
+        meta = self.get_preset_meta(preset_name, display_name=display_name)
         next_value = not bool(meta.get("pinned", False))
-        self.set_preset_pin(preset_name, next_value)
+        self.set_preset_pin(preset_name, next_value, display_name=display_name)
         return next_value
 
-    def set_preset_pin(self, preset_name: str, pinned: bool) -> None:
+    def set_preset_pin(self, preset_name: str, pinned: bool, *, display_name: str | None = None) -> None:
         self._ensure_loaded()
         assert self._state is not None
-        key = str(preset_name or "").strip()
+        key = self._resolve_preset_key(preset_name, display_name=display_name)
         if not key:
             return
-        meta = self.get_preset_meta(key)
+        meta = self.get_preset_meta(key, display_name=display_name)
         meta["pinned"] = bool(pinned)
         self._set_preset_meta(key, meta)
 
-    def set_preset_rating(self, preset_name: str, rating: int) -> None:
+    def set_preset_rating(self, preset_name: str, rating: int, *, display_name: str | None = None) -> None:
         self._ensure_loaded()
         assert self._state is not None
-        key = str(preset_name or "").strip()
+        key = self._resolve_preset_key(preset_name, display_name=display_name)
         if not key:
             return
-        meta = self.get_preset_meta(key)
+        meta = self.get_preset_meta(key, display_name=display_name)
         try:
             normalized = int(rating)
         except Exception:
@@ -372,10 +490,17 @@ class PresetHierarchyStore:
         meta["rating"] = max(0, min(10, normalized))
         self._set_preset_meta(key, meta)
 
-    def set_preset_folder(self, preset_name: str, folder_id: str | None, *, reset_order: bool = True) -> None:
+    def set_preset_folder(
+        self,
+        preset_name: str,
+        folder_id: str | None,
+        *,
+        reset_order: bool = True,
+        display_name: str | None = None,
+    ) -> None:
         self._ensure_loaded()
         assert self._state is not None
-        key = str(preset_name or "").strip()
+        key = self._resolve_preset_key(preset_name, display_name=display_name)
         if not key:
             return
 
@@ -384,7 +509,7 @@ class PresetHierarchyStore:
         if target not in custom_ids:
             target = None
 
-        meta = self.get_preset_meta(key)
+        meta = self.get_preset_meta(key, display_name=display_name)
         meta["folder_id"] = target
         if reset_order:
             meta["order"] = None
@@ -418,10 +543,11 @@ class PresetHierarchyStore:
         preset_name: str,
         *,
         is_builtin: bool = False,
+        display_name: str | None = None,
     ) -> str:
         if is_builtin:
-            return classify_stock_folder_id(preset_name)
-        meta = self.get_preset_meta(preset_name)
+            return classify_stock_folder_id(display_name or preset_name)
+        meta = self.get_preset_meta(preset_name, display_name=display_name)
         folder_id = meta.get("folder_id")
         custom_ids = {item["id"] for item in self.list_custom_folders()}
         if folder_id and folder_id in custom_ids:
@@ -430,7 +556,7 @@ class PresetHierarchyStore:
 
     def list_presets_in_folder(
         self,
-        preset_names: Iterable[str],
+        preset_names: Iterable[object],
         folder_id: str,
         *,
         is_builtin_name: Callable[[str], bool] | None = None,
@@ -439,20 +565,26 @@ class PresetHierarchyStore:
         assert self._state is not None
 
         target = str(folder_id or ROOT_FOLDER_ID).strip() or ROOT_FOLDER_ID
-        builtin_resolver = is_builtin_name or (lambda _name: False)
+        entries = self._normalize_preset_entries(preset_names, is_builtin_name=is_builtin_name)
+        self._register_entries(entries)
+        self._migrate_legacy_meta_keys(entries)
 
         names = []
-        for raw_name in preset_names:
-            name = str(raw_name or "").strip()
-            if not name:
+        for entry in entries:
+            key = str(entry.get("key") or "").strip()
+            if not key:
                 continue
-            if self.get_effective_folder_id(name, is_builtin=builtin_resolver(name)) == target:
-                names.append(name)
-        return self._sort_preset_names(names)
+            if self.get_effective_folder_id(
+                key,
+                is_builtin=bool(entry.get("is_builtin", False)),
+                display_name=str(entry.get("display_name") or ""),
+            ) == target:
+                names.append(key)
+        return self._sort_preset_keys(names)
 
     def move_preset_to_folder_end(
         self,
-        preset_names: Iterable[str],
+        preset_names: Iterable[object],
         preset_name: str,
         target_folder_id: str | None,
         *,
@@ -461,25 +593,36 @@ class PresetHierarchyStore:
         self._ensure_loaded()
         assert self._state is not None
 
-        builtin_resolver = is_builtin_name or (lambda _name: False)
-        source_name = str(preset_name or "").strip()
+        entries = self._normalize_preset_entries(preset_names, is_builtin_name=is_builtin_name)
+        self._register_entries(entries)
+        self._migrate_legacy_meta_keys(entries)
+
+        entry_by_key = {str(item.get("key") or "").strip(): item for item in entries}
+        source_name = self._resolve_preset_key(preset_name)
         if not source_name:
             return False
-        source_is_builtin = bool(builtin_resolver(source_name))
+        source_entry = entry_by_key.get(source_name)
+        source_is_builtin = bool((source_entry or {}).get("is_builtin", False))
+        source_display_name = str((source_entry or {}).get("display_name") or source_name)
 
         target_folder = self._normalize_target_folder_id(target_folder_id)
-        source_folder = self.get_effective_folder_id(source_name, is_builtin=source_is_builtin)
+        source_folder = self.get_effective_folder_id(source_name, is_builtin=source_is_builtin, display_name=source_display_name)
         if source_is_builtin and target_folder != source_folder:
             return False
-        source_names = self.list_presets_in_folder(preset_names, source_folder, is_builtin_name=builtin_resolver)
-        target_names = self.list_presets_in_folder(preset_names, target_folder, is_builtin_name=builtin_resolver)
+        source_names = self.list_presets_in_folder(entries, source_folder, is_builtin_name=is_builtin_name)
+        target_names = self.list_presets_in_folder(entries, target_folder, is_builtin_name=is_builtin_name)
 
         if source_folder == target_folder:
             reordered = [name for name in target_names if name != source_name]
             reordered.append(source_name)
             changed = reordered != target_names
             if not source_is_builtin:
-                self.set_preset_folder(source_name, None if target_folder == ROOT_FOLDER_ID else target_folder, reset_order=False)
+                self.set_preset_folder(
+                    source_name,
+                    None if target_folder == ROOT_FOLDER_ID else target_folder,
+                    reset_order=False,
+                    display_name=source_display_name,
+                )
             self._apply_preset_order_list(reordered)
             return changed
 
@@ -487,14 +630,19 @@ class PresetHierarchyStore:
         target_names = [name for name in target_names if name != source_name]
         target_names.append(source_name)
         if not source_is_builtin:
-            self.set_preset_folder(source_name, None if target_folder == ROOT_FOLDER_ID else target_folder, reset_order=False)
+            self.set_preset_folder(
+                source_name,
+                None if target_folder == ROOT_FOLDER_ID else target_folder,
+                reset_order=False,
+                display_name=source_display_name,
+            )
         self._apply_preset_order_list(source_names)
         self._apply_preset_order_list(target_names)
         return True
 
     def move_preset_before(
         self,
-        preset_names: Iterable[str],
+        preset_names: Iterable[object],
         preset_name: str,
         target_name: str,
         *,
@@ -503,19 +651,31 @@ class PresetHierarchyStore:
         self._ensure_loaded()
         assert self._state is not None
 
-        builtin_resolver = is_builtin_name or (lambda _name: False)
-        source_name = str(preset_name or "").strip()
-        target_preset = str(target_name or "").strip()
+        entries = self._normalize_preset_entries(preset_names, is_builtin_name=is_builtin_name)
+        self._register_entries(entries)
+        self._migrate_legacy_meta_keys(entries)
+
+        entry_by_key = {str(item.get("key") or "").strip(): item for item in entries}
+        source_name = self._resolve_preset_key(preset_name)
+        target_preset = self._resolve_preset_key(target_name)
         if not source_name or not target_preset or source_name == target_preset:
             return False
-        source_is_builtin = bool(builtin_resolver(source_name))
+        source_entry = entry_by_key.get(source_name)
+        target_entry = entry_by_key.get(target_preset)
+        source_is_builtin = bool((source_entry or {}).get("is_builtin", False))
+        source_display_name = str((source_entry or {}).get("display_name") or source_name)
+        target_display_name = str((target_entry or {}).get("display_name") or target_preset)
 
-        source_folder = self.get_effective_folder_id(source_name, is_builtin=source_is_builtin)
-        target_folder = self.get_effective_folder_id(target_preset, is_builtin=builtin_resolver(target_preset))
+        source_folder = self.get_effective_folder_id(source_name, is_builtin=source_is_builtin, display_name=source_display_name)
+        target_folder = self.get_effective_folder_id(
+            target_preset,
+            is_builtin=bool((target_entry or {}).get("is_builtin", False)),
+            display_name=target_display_name,
+        )
         if source_is_builtin and target_folder != source_folder:
             return False
-        source_names = self.list_presets_in_folder(preset_names, source_folder, is_builtin_name=builtin_resolver)
-        target_names = self.list_presets_in_folder(preset_names, target_folder, is_builtin_name=builtin_resolver)
+        source_names = self.list_presets_in_folder(entries, source_folder, is_builtin_name=is_builtin_name)
+        target_names = self.list_presets_in_folder(entries, target_folder, is_builtin_name=is_builtin_name)
 
         if source_folder == target_folder:
             reordered = [name for name in target_names if name != source_name]
@@ -525,7 +685,12 @@ class PresetHierarchyStore:
             reordered.insert(insert_at, source_name)
             changed = reordered != target_names
             if not source_is_builtin:
-                self.set_preset_folder(source_name, None if target_folder == ROOT_FOLDER_ID else target_folder, reset_order=False)
+                self.set_preset_folder(
+                    source_name,
+                    None if target_folder == ROOT_FOLDER_ID else target_folder,
+                    reset_order=False,
+                    display_name=source_display_name,
+                )
             self._apply_preset_order_list(reordered)
             return changed
 
@@ -536,27 +701,41 @@ class PresetHierarchyStore:
         insert_at = target_names.index(target_preset)
         target_names.insert(insert_at, source_name)
         if not source_is_builtin:
-            self.set_preset_folder(source_name, None if target_folder == ROOT_FOLDER_ID else target_folder, reset_order=False)
+            self.set_preset_folder(
+                source_name,
+                None if target_folder == ROOT_FOLDER_ID else target_folder,
+                reset_order=False,
+                display_name=source_display_name,
+            )
         self._apply_preset_order_list(source_names)
         self._apply_preset_order_list(target_names)
         return True
 
     def move_preset_by_step(
         self,
-        preset_names: Iterable[str],
+        preset_names: Iterable[object],
         preset_name: str,
         direction: int,
         *,
         is_builtin_name: Callable[[str], bool] | None = None,
     ) -> bool:
-        builtin_resolver = is_builtin_name or (lambda _name: False)
-        source_name = str(preset_name or "").strip()
+        entries = self._normalize_preset_entries(preset_names, is_builtin_name=is_builtin_name)
+        self._register_entries(entries)
+        self._migrate_legacy_meta_keys(entries)
+
+        entry_by_key = {str(item.get("key") or "").strip(): item for item in entries}
+        source_name = self._resolve_preset_key(preset_name)
         if not source_name:
             return False
 
-        source_is_builtin = bool(builtin_resolver(source_name))
-        source_folder = self.get_effective_folder_id(source_name, is_builtin=source_is_builtin)
-        ordered_names = self.list_presets_in_folder(preset_names, source_folder, is_builtin_name=builtin_resolver)
+        source_entry = entry_by_key.get(source_name)
+        source_is_builtin = bool((source_entry or {}).get("is_builtin", False))
+        source_folder = self.get_effective_folder_id(
+            source_name,
+            is_builtin=source_is_builtin,
+            display_name=str((source_entry or {}).get("display_name") or source_name),
+        )
+        ordered_names = self.list_presets_in_folder(entries, source_folder, is_builtin_name=is_builtin_name)
         if source_name not in ordered_names:
             return False
 
@@ -590,22 +769,26 @@ class PresetHierarchyStore:
         custom_ids = {item["id"] for item in self.list_custom_folders()}
         return target if target in custom_ids else ROOT_FOLDER_ID
 
-    def _sort_preset_names(self, names: Iterable[str]) -> list[str]:
-        def sort_key(name: str) -> tuple[int, int, int, str]:
-            meta = self.get_preset_meta(name)
+    def _display_name_for_key(self, preset_key: str) -> str:
+        return str((self._display_name_by_key or {}).get(preset_key) or preset_key)
+
+    def _sort_preset_keys(self, names: Iterable[str]) -> list[str]:
+        def sort_key(name: str) -> tuple[int, int, int, int, str]:
+            meta = self.get_preset_meta(name, display_name=self._display_name_for_key(name))
             order = meta.get("order")
             return (
                 0 if meta.get("pinned") else 1,
                 0 if order is not None else 1,
                 int(order or 0),
-                name.lower(),
+                -int(meta.get("rating", 0) or 0),
+                self._display_name_for_key(name).lower(),
             )
 
         return sorted((str(name or "").strip() for name in names if str(name or "").strip()), key=sort_key)
 
     def _apply_preset_order_list(self, ordered_names: Iterable[str]) -> None:
         for index, name in enumerate(ordered_names):
-            meta = self.get_preset_meta(name)
+            meta = self.get_preset_meta(name, display_name=self._display_name_for_key(name))
             meta["order"] = index
             self._state["presets"][name] = _normalize_preset_meta(meta)
         self._save()
@@ -850,7 +1033,7 @@ class PresetHierarchyStore:
 
     def build_rows(
         self,
-        preset_names: Iterable[str],
+        preset_names: Iterable[object],
         *,
         query: str = "",
         is_builtin_name: Callable[[str], bool] | None = None,
@@ -859,9 +1042,23 @@ class PresetHierarchyStore:
         assert self._state is not None
 
         query_text = str(query or "").strip().lower()
-        builtin_resolver = is_builtin_name or (lambda _name: False)
+        entries = self._normalize_preset_entries(preset_names, is_builtin_name=is_builtin_name)
+        self._register_entries(entries)
+        self._migrate_legacy_meta_keys(entries)
         by_id = {item["id"]: item for item in self._state["folders"]}
+        live_keys = {str(item.get("key") or "").strip() for item in entries if str(item.get("key") or "").strip()}
 
+        # Drop stale preset metadata for files that no longer exist.
+        stale_keys = [
+            key for key in list((self._state.get("presets", {}) or {}).keys())
+            if key not in live_keys
+        ]
+        if stale_keys:
+            for key in stale_keys:
+                self._state["presets"].pop(key, None)
+            self._save()
+
+        entry_by_key = {str(item.get("key") or "").strip(): item for item in entries}
         custom_presets_by_folder: dict[str | None, list[str]] = {None: []}
         builtin_presets_by_folder: dict[str, list[str]] = {
             STOCK_REGULAR_ID: [],
@@ -874,28 +1071,30 @@ class PresetHierarchyStore:
                 return True
             return query_text in name.lower()
 
-        for raw_name in sorted((str(item or "").strip() for item in preset_names), key=lambda value: value.lower()):
-            if not raw_name or not matches_name(raw_name):
+        for entry in sorted(entries, key=lambda value: str(value.get("display_name") or "").lower()):
+            raw_key = str(entry.get("key") or "").strip()
+            display_name = str(entry.get("display_name") or raw_key).strip()
+            if not raw_key or not matches_name(display_name):
                 continue
-            meta = self.get_preset_meta(raw_name)
-            if builtin_resolver(raw_name):
-                builtin_presets_by_folder[classify_stock_folder_id(raw_name)].append(raw_name)
+            meta = self.get_preset_meta(raw_key, display_name=display_name)
+            if bool(entry.get("is_builtin", False)):
+                builtin_presets_by_folder[classify_stock_folder_id(display_name)].append(raw_key)
                 continue
 
             folder_id = meta.get("folder_id")
             if folder_id and folder_id in by_id:
-                custom_presets_by_folder.setdefault(folder_id, []).append(raw_name)
+                custom_presets_by_folder.setdefault(folder_id, []).append(raw_key)
             else:
-                custom_presets_by_folder.setdefault(None, []).append(raw_name)
+                custom_presets_by_folder.setdefault(None, []).append(raw_key)
 
-        def preset_sort_key(name: str) -> tuple[int, int, str]:
-            meta = self.get_preset_meta(name)
+        def preset_sort_key(name: str) -> tuple[int, int, int, int, str]:
+            meta = self.get_preset_meta(name, display_name=self._display_name_for_key(name))
             return (
                 0 if meta.get("pinned") else 1,
                 0 if meta.get("order") is not None else 1,
                 int(meta.get("order") or 0),
                 -int(meta.get("rating", 0) or 0),
-                name.lower(),
+                self._display_name_for_key(name).lower(),
             )
 
         for names in custom_presets_by_folder.values():
@@ -912,12 +1111,15 @@ class PresetHierarchyStore:
         rows: list[dict] = []
 
         def append_preset_rows(names: list[str], depth: int) -> None:
-            for preset_name in names:
-                meta = self.get_preset_meta(preset_name)
+            for preset_key in names:
+                entry = entry_by_key.get(preset_key) or {}
+                display_name = str(entry.get("display_name") or preset_key)
+                meta = self.get_preset_meta(preset_key, display_name=display_name)
                 rows.append(
                     {
                         "kind": "preset",
-                        "name": preset_name,
+                        "name": display_name,
+                        "file_name": preset_key,
                         "depth": depth,
                         "is_pinned": bool(meta.get("pinned", False)),
                         "rating": int(meta.get("rating", 0) or 0),

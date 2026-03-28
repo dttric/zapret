@@ -596,18 +596,15 @@ class StrategyRunnerV1:
         MAX_RETRIES = 2
 
         if not os.path.exists(preset_path):
-            # Self-healing: try to create default preset
-            log(f"Preset file not found: {preset_path}, attempting auto-create...", "WARNING")
+            log(f"Preset file not found: {preset_path}, attempting selected-runtime refresh...", "WARNING")
             try:
                 from core.services import get_direct_flow_coordinator
 
                 get_direct_flow_coordinator().ensure_runtime("direct_zapret1")
-                if not os.path.exists(preset_path):
-                    get_direct_flow_coordinator().select_preset("direct_zapret1", "Default")
                 if os.path.exists(preset_path):
-                    log(f"Auto-created preset file: {preset_path}", "INFO")
+                    log(f"Preset file became available after refresh: {preset_path}", "INFO")
             except Exception as e:
-                log(f"Auto-create failed: {e}", "WARNING")
+                log(f"Selected-runtime refresh failed: {e}", "WARNING")
 
         if not os.path.exists(preset_path):
             log(f"Preset file not found: {preset_path}", "ERROR")

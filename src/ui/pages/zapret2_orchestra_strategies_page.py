@@ -843,10 +843,10 @@ class Zapret2OrchestraStrategiesPage(BasePage):
 
     def _clear_all(self) -> None:
         try:
-            from strategy_menu import save_direct_strategy_selections
+            from strategy_menu import set_direct_strategy_selections
 
             none_selections = {k: "none" for k in (self._categories or {}).keys()}
-            save_direct_strategy_selections(none_selections)
+            set_direct_strategy_selections(none_selections)
             self.category_selections = none_selections
 
             self._update_dpi_filters_display()
@@ -984,13 +984,13 @@ class Zapret2OrchestraStrategiesPage(BasePage):
         if not categories_to_disable:
             return
         try:
-            from strategy_menu import save_direct_strategy_selections
+            from strategy_menu import set_direct_strategy_selections
 
             for key in categories_to_disable:
                 if key in self.category_selections:
                     self.category_selections[key] = "none"
 
-            save_direct_strategy_selections(self.category_selections)
+            set_direct_strategy_selections(self.category_selections)
 
             if self._has_any_active_strategy():
                 self._restart_dpi_with_current_selections()

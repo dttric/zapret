@@ -2394,18 +2394,6 @@ class StrategyDetailPage(BasePage):
         if not name:
             return
         try:
-            if facade.exists(name):
-                if InfoBar:
-                    InfoBar.warning(
-                        title=self._tr("page.z2_strategy_detail.infobar.preset.exists.title", "Уже существует"),
-                        content=self._tr(
-                            "page.z2_strategy_detail.infobar.preset.exists.content",
-                            "Пресет '{name}' уже существует.",
-                            name=name,
-                        ),
-                        parent=self.window(),
-                    )
-                return
             facade.create(name, from_current=True)
             store.notify_presets_changed()
             log(f"Создан пресет '{name}'", "INFO")
@@ -2437,6 +2425,9 @@ class StrategyDetailPage(BasePage):
 
             facade = DirectPresetFacade.from_launch_method("direct_zapret2")
             store = get_preset_store()
+            old_file_name = (
+                get_direct_flow_coordinator().get_selected_source_file_name("direct_zapret2") or ""
+            ).strip()
 
             old_name = (
                 get_direct_flow_coordinator().get_selected_preset_name("direct_zapret2") or ""
@@ -2450,7 +2441,7 @@ class StrategyDetailPage(BasePage):
                 )
             return
 
-        if not old_name:
+        if not old_name or not old_file_name:
             if InfoBar:
                 InfoBar.warning(
                     title=self._tr("page.z2_strategy_detail.infobar.preset.no_active.title", "Нет активного пресета"),
@@ -2469,22 +2460,10 @@ class StrategyDetailPage(BasePage):
         if not new_name or new_name == old_name:
             return
         try:
-            if facade.exists(new_name):
-                if InfoBar:
-                    InfoBar.warning(
-                        title=self._tr("page.z2_strategy_detail.infobar.preset.exists.title", "Уже существует"),
-                        content=self._tr(
-                            "page.z2_strategy_detail.infobar.preset.exists.content",
-                            "Пресет '{name}' уже существует.",
-                            name=new_name,
-                        ),
-                        parent=self.window(),
-                    )
-                return
-            facade.rename(old_name, new_name)
+            updated = facade.rename_by_file_name(old_file_name, new_name)
             store.notify_presets_changed()
-            if facade.is_selected(new_name):
-                store.notify_preset_switched(new_name)
+            if facade.is_selected_file_name(updated.manifest.file_name):
+                store.notify_preset_switched(updated.manifest.file_name)
             log(f"Пресет '{old_name}' переименован в '{new_name}'", "INFO")
             if InfoBar:
                 InfoBar.success(
