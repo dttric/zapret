@@ -41,12 +41,13 @@ class InitializationManager:
         - Меню и сигналы → UI готов к взаимодействию
         
         ФАЗА 2 (50-300ms): Менеджеры ядра и быстрые UI-зависимости
-        - Core: DPI Manager, Process Monitor
+        - Core: DPI Manager и обязательные файлы
         - Content: Strategy Manager
         - Theme: ThemeManager (асинхронная генерация CSS)
         - Service: автозапуск/службы
 
         ФАЗА 3 (600ms+): Idle-инициализация тяжёлых/необязательных менеджеров
+        - Process Monitor
         - Network: Discord, Hosts, DNS
         - Tray, Logger, прогрев кэша
 
@@ -72,10 +73,10 @@ class InitializationManager:
         # ФАЗА 2: Менеджеры (основная логика приложения)
         # ═══════════════════════════════════════════════════════════════
         init_tasks.extend([
-            (50,  self._init_core_managers),      # DPI, Process Monitor
+            (50,  self._init_core_managers),      # DPI Manager + обязательные файлы
             (70,  self._init_strategy_manager),   # Стратегии (локально)
             (90,  self._init_theme_manager),      # Тема (асинхронно)
-            (220, self._init_service_managers),   # Service, Update
+            (1400, self._init_service_managers),  # Service, Update
         ])
         
         # ═══════════════════════════════════════════════════════════════
@@ -83,10 +84,11 @@ class InitializationManager:
         # ═══════════════════════════════════════════════════════════════
         init_tasks.extend([
             (300, self._finalize_managers_init),  # Финализация
-            (600, self._init_network_managers),   # Discord, Hosts, DNS (idle)
-            (900, self._init_tray),               # Системный трей (idle)
+            (2200, self._init_process_monitor),   # Process Monitor (idle)
+            (3200, self._init_network_managers),  # Discord, Hosts, DNS (idle)
+            (450 if getattr(self.app, "start_in_tray", False) else 4200, self._init_tray),
             (1500, self._init_logger),            # Логирование (idle)
-            (1700, self._init_strategy_cache),    # Отложенный прогрев кэша
+            (5200, self._init_strategy_cache),    # Отложенный прогрев кэша
         ])
         
         # ═══════════════════════════════════════════════════════════════
@@ -416,7 +418,7 @@ class InitializationManager:
     # ═══════════════════════════════════════════════════════════════════
     
     def _init_core_managers(self):
-        """Инициализация ядра: DPI Manager, Process Monitor, файлы"""
+        """Инициализация ядра: DPI Manager и обязательные файлы."""
         try:
             import time as _t
             t0 = _t.perf_counter()
@@ -430,15 +432,26 @@ class InitializationManager:
                 from managers.dpi_manager import DPIManager
                 self.app.dpi_manager = DPIManager(self.app)
             
-            # Process Monitor
-            if hasattr(self.app, 'process_monitor_manager'):
-                self.app.process_monitor_manager.initialize_process_monitor()
             self.app.last_strategy_change_time = __import__('time').time()
             
             log(f"✅ Core managers: {(_t.perf_counter() - t0)*1000:.0f}ms", "DEBUG")
             self.init_tasks_completed.add('core_managers')
         except Exception as e:
             log(f"❌ Ошибка core managers: {e}", "ERROR")
+
+    def _init_process_monitor(self):
+        """Отложенный запуск Process Monitor после первой интерактивности UI."""
+        try:
+            import time as _t
+            t0 = _t.perf_counter()
+
+            if hasattr(self.app, 'process_monitor_manager'):
+                self.app.process_monitor_manager.initialize_process_monitor()
+
+            log(f"✅ Process monitor: {(_t.perf_counter() - t0)*1000:.0f}ms", "DEBUG")
+            self.init_tasks_completed.add('process_monitor')
+        except Exception as e:
+            log(f"❌ Ошибка process monitor: {e}", "ERROR")
     
     def _init_network_managers(self):
         """Инициализация сетевых менеджеров: Discord, Hosts, DNS"""

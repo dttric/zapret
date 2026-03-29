@@ -293,12 +293,11 @@ class HomePage(BasePage):
     def showEvent(self, event):  # type: ignore[override]
         """При показе страницы обновляем статус автозапуска"""
         super().showEvent(event)
-        # Запускаем проверку автозапуска в фоне с небольшой задержкой
-        QTimer.singleShot(100, self._check_autostart_status)
-        # Обновляем карточку метода запуска, когда UI стабилизировался.
-        QTimer.singleShot(150, self._refresh_strategy_card)
+        # Не нагружаем самый первый кадр второстепенными действиями.
+        QTimer.singleShot(280, self._check_autostart_status)
+        QTimer.singleShot(360, self._refresh_strategy_card)
         if not self._home_intro_checked:
-            QTimer.singleShot(0, self._maybe_play_home_intro)
+            QTimer.singleShot(700, self._maybe_play_home_intro)
 
     def _get_launch_method_display_name(self) -> str:
         """Возвращает человекочитаемое название текущего метода запуска."""

@@ -311,6 +311,11 @@ class StrategiesRegistry:
         """Получает категории (загружаются из JSON)"""
         return _get_targets()
 
+    @property
+    def _categories(self) -> Dict[str, TargetInfo]:
+        """Legacy alias для старого orchestra/UI кода, который ещё читает registry._categories."""
+        return self._targets
+
     def reload_strategies(self):
         """
         Перезагружает все стратегии из JSON файлов.
@@ -371,6 +376,10 @@ class StrategiesRegistry:
         if not target_info:
             return {}
         return _lazy_import_base_strategies(target_info.strategy_type)
+
+    def get_category_strategies(self, target_key: str) -> Dict[str, Any]:
+        """Legacy alias: старый UI оркестра ожидает имя get_category_strategies()."""
+        return self.get_target_strategies(target_key)
     
     def get_target_info(self, target_key: str) -> Optional[TargetInfo]:
         """Получить информацию о категории"""

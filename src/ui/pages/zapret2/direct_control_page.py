@@ -560,11 +560,6 @@ class Zapret2DirectControlPage(BasePage):
         extra_card.add_layout(extra_layout)
         self.add_widget(extra_card)
 
-        self._sync_program_settings()
-
-        # Advanced settings initial state
-        self._load_advanced_settings()
-
     def _load_advanced_settings(self) -> None:
         """Sync advanced toggles from the current direct preset state."""
         try:

@@ -11,12 +11,16 @@ from ui.page_names import PageName
 def get_eager_page_names(window) -> tuple[PageName, ...]:
     method = window._get_launch_method()
 
-    names: list[PageName] = [PageName.HOME, PageName.CONTROL]
+    names: list[PageName] = [PageName.HOME]
     eager_mode_entry_page = getattr(window, "_eager_mode_entry_page", {}) or {}
     eager_page_names_base = getattr(window, "_eager_page_names_base", ()) or ()
     entry_page = eager_mode_entry_page.get(method)
     if entry_page is not None and entry_page not in names:
         names.append(entry_page)
+    elif PageName.CONTROL not in names:
+        # CONTROL нужен как стартовая страница только там, где нет
+        # отдельной mode-specific entry page.
+        names.append(PageName.CONTROL)
 
     for page_name in eager_page_names_base:
         if page_name not in names:
@@ -44,6 +48,25 @@ def create_pages(window) -> None:
 
 def resolve_page_name(window, name: PageName) -> PageName:
     return window._page_aliases.get(name, name)
+
+
+def get_page_route_key(window, name: PageName) -> str | None:
+    """Возвращает стабильный route key для Fluent-навигации без создания страницы."""
+    resolved_name = resolve_page_name(window, name)
+
+    # Эти страницы используют один и тот же класс, поэтому route key должен
+    # быть уникальным и стабильным даже до фактического создания QWidget.
+    if resolved_name == PageName.ZAPRET2_USER_PRESETS:
+        return "Zapret2UserPresetsPage_Direct"
+    if resolved_name == PageName.ZAPRET2_ORCHESTRA_USER_PRESETS:
+        return "Zapret2UserPresetsPage_Orchestra"
+
+    page_class_specs = getattr(window, "_page_class_specs", {}) or {}
+    spec = page_class_specs.get(resolved_name)
+    if spec is None:
+        return None
+
+    return str(spec[2] or "").strip() or None
 
 
 def connect_signal_once(window, key: str, signal_obj, slot_obj) -> None:
@@ -424,18 +447,9 @@ def ensure_page(window, name: PageName) -> QWidget | None:
             )
             return None
 
-    # Ensure unique objectName for FluentWindow route keys.
-    if resolved_name == PageName.ZAPRET2_USER_PRESETS:
-        page.setObjectName("Zapret2UserPresetsPage_Direct")
-    elif resolved_name == PageName.ZAPRET2_ORCHESTRA_USER_PRESETS:
-        page.setObjectName("Zapret2UserPresetsPage_Orchestra")
-    elif resolved_name == PageName.ZAPRET2_ORCHESTRA_CONTROL:
-        if not page.objectName():
-            cls_name = page.__class__.__name__
-            if cls_name == "Zapret2DirectControlPage":
-                page.setObjectName("Zapret2DirectControlPage_Orchestra")
-            else:
-                page.setObjectName(cls_name)
+    route_key = get_page_route_key(window, resolved_name)
+    if route_key:
+        page.setObjectName(route_key)
     elif not page.objectName():
         page.setObjectName(page.__class__.__name__)
 

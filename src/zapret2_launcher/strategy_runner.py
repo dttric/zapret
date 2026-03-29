@@ -15,7 +15,6 @@ import subprocess
 import time
 import threading
 from typing import Optional, List, Callable
-from datetime import datetime
 
 from log import log
 from launcher_common.runner_base import StrategyRunnerBase, log_full_command
@@ -24,10 +23,8 @@ from utils.circular_strategy_numbering import (
     strip_strategy_tags,
 )
 from utils.atomic_text import atomic_write_text
-from launcher_common.constants import SW_HIDE, CREATE_NO_WINDOW, STARTF_USESHOWWINDOW
+from launcher_common.constants import CREATE_NO_WINDOW
 from dpi.process_health_check import (
-    check_process_health,
-    get_last_crash_info,
     check_common_crash_causes,
     check_conflicting_processes,
     get_conflicting_processes_report,
@@ -1114,55 +1111,3 @@ class StrategyRunnerV2(StrategyRunnerBase):
 
         # Call base class stop
         return super().stop()
-
-
-# Global instance
-_strategy_runner_v2_instance: Optional[StrategyRunnerV2] = None
-
-
-def get_strategy_runner_v2(winws_exe_path: str) -> StrategyRunnerV2:
-    """
-    Gets or creates global StrategyRunnerV2 instance.
-
-    IMPORTANT: Recreates runner if different exe requested (mode switch).
-
-    Args:
-        winws_exe_path: Path to winws2.exe
-
-    Returns:
-        StrategyRunnerV2 instance
-    """
-    global _strategy_runner_v2_instance
-
-    # Recreate runner if exe changed (mode switch)
-    if _strategy_runner_v2_instance is not None:
-        if _strategy_runner_v2_instance.winws_exe != winws_exe_path:
-            log(f"Exe change: {_strategy_runner_v2_instance.winws_exe} -> {winws_exe_path}", "INFO")
-            _strategy_runner_v2_instance = None
-
-    if _strategy_runner_v2_instance is None:
-        _strategy_runner_v2_instance = StrategyRunnerV2(winws_exe_path)
-    return _strategy_runner_v2_instance
-
-
-def reset_strategy_runner_v2():
-    """Resets global instance (synchronously stops process and watcher)"""
-    global _strategy_runner_v2_instance
-    if _strategy_runner_v2_instance:
-        _strategy_runner_v2_instance.stop()
-    _strategy_runner_v2_instance = None
-
-
-def invalidate_strategy_runner_v2():
-    """
-    Marks runner for recreation without synchronous stop.
-    Used when switching launch method - UI updates instantly,
-    old process will be stopped on next DPI start.
-    """
-    global _strategy_runner_v2_instance
-    _strategy_runner_v2_instance = None
-
-
-def get_current_runner_v2() -> Optional[StrategyRunnerV2]:
-    """Returns current runner instance without creating new one"""
-    return _strategy_runner_v2_instance

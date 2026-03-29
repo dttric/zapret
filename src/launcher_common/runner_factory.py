@@ -12,9 +12,6 @@ from zapret1_launcher.strategy_runner import StrategyRunnerV1
 from zapret2_launcher.strategy_runner import StrategyRunnerV2
 from .runner_base import StrategyRunnerBase
 
-# For backwards compatibility
-StrategyRunner = StrategyRunnerV2  # Default to V2
-
 _strategy_runner_instance: Optional[StrategyRunnerBase] = None
 
 

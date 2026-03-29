@@ -87,6 +87,7 @@ from ui.main_window_pages import (
     ensure_page,
     ensure_page_in_stacked_widget,
     get_eager_page_names,
+    get_page_route_key,
     resolve_page_name,
 )
 from ui.main_window_mode_switch import (
@@ -236,13 +237,7 @@ _PAGE_ALIASES: dict[PageName, PageName] = {
     PageName.DNS_CHECK: PageName.BLOCKCHECK,
 }
 
-_EAGER_PAGE_NAMES_BASE: tuple[PageName, ...] = (
-    PageName.AUTOSTART,
-    PageName.DPI_SETTINGS,
-    PageName.APPEARANCE,
-    PageName.ABOUT,
-    PageName.PREMIUM,
-)
+_EAGER_PAGE_NAMES_BASE: tuple[PageName, ...] = ()
 
 _EAGER_MODE_ENTRY_PAGE: dict[str, PageName] = {
     "direct_zapret2": PageName.ZAPRET2_DIRECT_CONTROL,
@@ -625,6 +620,12 @@ class MainWindowUI:
             self._ensure_page_in_stacked_widget(page)
             if hasattr(self, 'stackedWidget'):
                 self.stackedWidget.setCurrentWidget(page)
+        try:
+            route_key = get_page_route_key(self, name)
+            if route_key:
+                self.navigationInterface.setCurrentItem(route_key)
+        except Exception:
+            pass
         return True
 
     def _show_active_zapret2_user_presets_page(self) -> None:

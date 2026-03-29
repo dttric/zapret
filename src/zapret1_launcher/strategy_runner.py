@@ -16,9 +16,9 @@ from datetime import datetime
 from log import log
 
 from launcher_common.args_filters import apply_all_filters
-from launcher_common.constants import SW_HIDE, CREATE_NO_WINDOW, STARTF_USESHOWWINDOW
+from launcher_common.constants import CREATE_NO_WINDOW
+from launcher_common.runner_base import StrategyRunnerBase, log_full_command
 from dpi.process_health_check import (
-    check_process_health,
     check_common_crash_causes,
     check_conflicting_processes,
     get_conflicting_processes_report,
@@ -42,66 +42,6 @@ def _launch_args_from_preset_text(content: str) -> list[str]:
             continue
         args.append(stripped)
     return args
-
-
-def log_full_command(cmd_list: List[str], strategy_name: str):
-    """
-    Writes full command line to a separate file for debugging.
-
-    Args:
-        cmd_list: List of command arguments
-        strategy_name: Strategy name
-    """
-    try:
-        from config import LOGS_FOLDER
-
-        os.makedirs(LOGS_FOLDER, exist_ok=True)
-
-        cmd_log_file = os.path.join(LOGS_FOLDER, "commands_full.log")
-
-        full_cmd_parts = []
-        for i, arg in enumerate(cmd_list):
-            if i == 0:
-                full_cmd_parts.append(arg)
-            else:
-                if arg.startswith('"') and arg.endswith('"'):
-                    full_cmd_parts.append(arg)
-                elif ' ' in arg or '\t' in arg:
-                    full_cmd_parts.append(f'"{arg}"')
-                else:
-                    full_cmd_parts.append(arg)
-
-        full_cmd = ' '.join(full_cmd_parts)
-
-        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        separator = "=" * 80
-
-        with open(cmd_log_file, 'a', encoding='utf-8') as f:
-            f.write(f"\n{separator}\n")
-            f.write(f"Timestamp: {timestamp}\n")
-            f.write(f"Strategy: {strategy_name}\n")
-            f.write(f"Command length: {len(full_cmd)} characters\n")
-            f.write(f"Arguments count: {len(cmd_list) - 1}\n")
-            f.write(f"{separator}\n")
-            f.write(f"FULL COMMAND:\n")
-            f.write(f"{full_cmd}\n")
-            f.write(f"{separator}\n")
-
-            f.write(f"ARGUMENTS LIST:\n")
-            for i, arg in enumerate(cmd_list):
-                f.write(f"[{i:3}]: {arg}\n")
-            f.write(f"{separator}\n\n")
-
-        last_cmd_file = os.path.join(LOGS_FOLDER, "last_command.txt")
-        with open(last_cmd_file, 'w', encoding='utf-8') as f:
-            f.write(f"# Last command executed at {timestamp}\n")
-            f.write(f"# Strategy: {strategy_name}\n\n")
-            f.write(full_cmd)
-
-        log(f"Command saved to logs/commands_full.log", "DEBUG")
-
-    except Exception as e:
-        log(f"Error writing command to log: {e}", "DEBUG")
 
 
 class ConfigFileWatcher:
@@ -170,7 +110,7 @@ class ConfigFileWatcher:
                 sleep_remaining -= 0.1
 
 
-class StrategyRunnerV1:
+class StrategyRunnerV1(StrategyRunnerBase):
     """
     Runner for Zapret 1 (winws.exe).
     Simple version without hot-reload and Lua functionality.
@@ -181,10 +121,7 @@ class StrategyRunnerV1:
         Args:
             winws_exe_path: Path to winws.exe
         """
-        self.winws_exe = os.path.abspath(winws_exe_path)
-        self.running_process: Optional[subprocess.Popen] = None
-        self.current_strategy_name: Optional[str] = None
-        self.current_strategy_args: Optional[List[str]] = None
+        super().__init__(winws_exe_path)
         # Human-readable last start error (for UI/status).
         self.last_error: Optional[str] = None
 
@@ -192,21 +129,9 @@ class StrategyRunnerV1:
         self._config_watcher: Optional[ConfigFileWatcher] = None
         self._preset_file_path: Optional[str] = None
 
-        # Verify exe exists
-        if not os.path.exists(self.winws_exe):
-            raise FileNotFoundError(f"winws.exe not found: {self.winws_exe}")
-
-        # Determine working directory
-        exe_dir = os.path.dirname(self.winws_exe)
-        self.work_dir = os.path.dirname(exe_dir)
-
-        self.bin_dir = os.path.join(self.work_dir, "bin")
-        self.lists_dir = os.path.join(self.work_dir, "lists")
-
-        log(f"StrategyRunnerV1 initialized. winws.exe: {self.winws_exe}", "INFO")
-        log(f"Working directory: {self.work_dir}", "DEBUG")
-        log(f"Lists folder: {self.lists_dir}", "DEBUG")
-        log(f"Bin folder: {self.bin_dir}", "DEBUG")
+    def get_preset_filename(self) -> str:
+        """Returns preset filename for Zapret 1 combined/custom launch."""
+        return "launch_direct_zapret1.txt"
 
     def _set_last_error(self, message: Optional[str]) -> None:
         try:
@@ -260,7 +185,7 @@ class StrategyRunnerV1:
         Returns:
             Path to created file
         """
-        preset_filename = "launch_direct_zapret1.txt"
+        preset_filename = self.get_preset_filename()
         preset_path = os.path.join(self.work_dir, preset_filename)
         timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
@@ -281,117 +206,6 @@ class StrategyRunnerV1:
                     f.write("\n")
 
         return preset_path
-
-    def _create_startup_info(self):
-        """Creates STARTUPINFO for hidden process launch"""
-        startupinfo = subprocess.STARTUPINFO()
-        startupinfo.dwFlags = STARTF_USESHOWWINDOW
-        startupinfo.wShowWindow = SW_HIDE
-        return startupinfo
-
-    def _resolve_file_paths(self, args: List[str]) -> List[str]:
-        """Resolves relative file paths"""
-        from config import WINDIVERT_FILTER
-        from utils.args_resolver import resolve_args_paths
-
-        return resolve_args_paths(args, self.lists_dir, self.bin_dir, WINDIVERT_FILTER)
-
-    def _fast_cleanup_services(self):
-        """Fast service cleanup via Win API (for normal startup)"""
-        try:
-            from utils.service_manager import cleanup_windivert_services
-            cleanup_windivert_services()
-        except Exception as e:
-            log(f"Fast cleanup error: {e}", "DEBUG")
-
-    def _is_windivert_conflict_error(self, stderr: str, exit_code: int) -> bool:
-        """Checks if error is a retryable WinDivert conflict (GUID/LUID collision).
-
-        This does NOT include system-level errors like service disabled (1058),
-        driver blocked (1275), or Secure Boot (577) — those are not fixable
-        by cleanup/retry.
-        """
-        if exit_code == 9:
-            return True
-
-        stderr_lower = (stderr or "").lower()
-        conflict_signatures = [
-            "guid or luid already exists",
-            "object with that guid",
-        ]
-        return any(sig in stderr_lower for sig in conflict_signatures)
-
-    def _is_windivert_system_error(self, stderr: str, exit_code: int) -> bool:
-        """Checks if error is a non-retryable WinDivert system error."""
-        non_retryable_codes = {577, 1058, 1060, 1068, 1275, 654}
-        if exit_code in non_retryable_codes:
-            return True
-
-        stderr_lower = (stderr or "").lower()
-        system_signatures = [
-            "the service cannot be started",
-            "service is disabled",
-            "invalid image hash",
-            "driver blocked",
-            "disable secure boot",
-            "driver failed prior unload",
-        ]
-        return any(sig in stderr_lower for sig in system_signatures)
-
-    def _aggressive_windivert_cleanup(self):
-        """Aggressive WinDivert cleanup via Win API - for cases when normal cleanup doesn't help"""
-        from utils.service_manager import stop_and_delete_service, unload_driver
-
-        log("Performing aggressive WinDivert cleanup via Win API...", "INFO")
-
-        # 1. Kill ALL processes that may hold handles
-        self._kill_all_winws_processes()
-        time.sleep(0.3)
-
-        # 2. Unload drivers via fltmc (before deleting services!)
-        drivers = ["WinDivert", "WinDivert14", "WinDivert64", "Monkey"]
-        for driver in drivers:
-            try:
-                unload_driver(driver)
-            except:
-                pass
-
-        time.sleep(0.2)
-
-        # 3. Stop and delete services via Win API
-        services = ["WinDivert", "WinDivert14", "WinDivert64", "windivert", "Monkey"]
-        for service in services:
-            try:
-                stop_and_delete_service(service, retry_count=3)
-            except:
-                pass
-
-        time.sleep(0.3)
-
-        # 4. Final process cleanup
-        self._kill_all_winws_processes()
-
-        log("Aggressive cleanup completed", "INFO")
-
-    def _kill_all_winws_processes(self):
-        """Forcefully terminates all winws.exe and winws2.exe processes via Win API"""
-        try:
-            from utils.process_killer import kill_winws_force
-            kill_winws_force()
-        except Exception as e:
-            log(f"Error killing winws processes: {e}", "DEBUG")
-
-    def _stop_windivert_service(self):
-        """Stops and deletes WinDivert service via Win API"""
-        from utils.service_manager import stop_and_delete_service
-
-        for service_name in ["WinDivert", "windivert", "WinDivert14", "WinDivert64"]:
-            stop_and_delete_service(service_name, retry_count=3)
-
-    def _stop_monkey_service(self):
-        """Stops and deletes Monkey service via Win API"""
-        from utils.service_manager import stop_and_delete_service
-        stop_and_delete_service("Monkey", retry_count=3)
 
     def _on_config_changed(self) -> None:
         """Called when the launch preset file changes. Performs full restart."""
@@ -783,120 +597,10 @@ class StrategyRunnerV1:
             return False
 
     def stop(self) -> bool:
-        """Stops running process"""
-        try:
-            # Stop config file watcher
-            if self._config_watcher:
-                self._config_watcher.stop()
-                self._config_watcher = None
+        """Stops running process and hot-reload watcher."""
+        if self._config_watcher:
+            self._config_watcher.stop()
+            self._config_watcher = None
 
-            success = True
-
-            if self.running_process and self.is_running():
-                pid = self.running_process.pid
-                strategy_name = self.current_strategy_name or "unknown"
-
-                log(f"Stopping strategy '{strategy_name}' (PID: {pid})", "INFO")
-
-                # Soft stop
-                self.running_process.terminate()
-
-                try:
-                    self.running_process.wait(timeout=5)
-                    log(f"Process stopped (PID: {pid})", "SUCCESS")
-                except subprocess.TimeoutExpired:
-                    log("Soft stop failed, using force kill", "WARNING")
-                    self.running_process.kill()
-                    self.running_process.wait()
-                    log(f"Process forcefully terminated (PID: {pid})", "SUCCESS")
-            else:
-                log("No running process to stop", "INFO")
-
-            # Additional cleanup
-            self._stop_windivert_service()
-            self._stop_monkey_service()
-            self._kill_all_winws_processes()
-
-            # Clear state
-            self.running_process = None
-            self.current_strategy_name = None
-            self.current_strategy_args = None
-
-            return success
-
-        except Exception as e:
-            log(f"Error stopping process: {e}", "ERROR")
-            return False
-
-    def is_running(self) -> bool:
-        """Checks if process is running"""
-        if not self.running_process:
-            return False
-
-        poll_result = self.running_process.poll()
-        is_running = poll_result is None
-
-        if not is_running and self.current_strategy_name:
-            log(f"Strategy process exited (code: {poll_result})", "WARNING")
-
-        return is_running
-
-    def get_current_strategy_info(self) -> dict:
-        """Returns information about current running strategy"""
-        if not self.is_running():
-            return {}
-
-        return {
-            'name': self.current_strategy_name,
-            'pid': self.running_process.pid if self.running_process else None,
-            'args_count': len(self.current_strategy_args) if self.current_strategy_args else 0
-        }
-
-    def get_process(self) -> Optional[subprocess.Popen]:
-        """Returns current running process for output reading"""
-        if self.is_running():
-            return self.running_process
-        return None
-
-
-# Global instance
-_strategy_runner_v1_instance: Optional[StrategyRunnerV1] = None
-
-
-def get_strategy_runner_v1(winws_exe_path: str) -> StrategyRunnerV1:
-    """Gets or creates global StrategyRunnerV1 instance.
-
-    IMPORTANT: Recreates runner if different exe requested (mode switch).
-    """
-    global _strategy_runner_v1_instance
-
-    # Recreate runner if exe changed (mode switch)
-    if _strategy_runner_v1_instance is not None:
-        if _strategy_runner_v1_instance.winws_exe != winws_exe_path:
-            log(f"Exe change: {_strategy_runner_v1_instance.winws_exe} -> {winws_exe_path}", "INFO")
-            _strategy_runner_v1_instance = None
-
-    if _strategy_runner_v1_instance is None:
-        _strategy_runner_v1_instance = StrategyRunnerV1(winws_exe_path)
-    return _strategy_runner_v1_instance
-
-
-def reset_strategy_runner_v1():
-    """Resets global instance (synchronously stops process)"""
-    global _strategy_runner_v1_instance
-    if _strategy_runner_v1_instance:
-        _strategy_runner_v1_instance.stop()
-    _strategy_runner_v1_instance = None
-
-
-def invalidate_strategy_runner_v1():
-    """Marks runner for recreation without synchronous stop.
-    Used when switching launch method - UI updates instantly,
-    old process will be stopped on next DPI start."""
-    global _strategy_runner_v1_instance
-    _strategy_runner_v1_instance = None
-
-
-def get_current_runner_v1() -> Optional[StrategyRunnerV1]:
-    """Returns current runner instance without creating new one"""
-    return _strategy_runner_v1_instance
+        self._preset_file_path = None
+        return super().stop()

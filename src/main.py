@@ -2184,6 +2184,11 @@ def main():
 
     _startup_bridge = _StartupChecksBridge()
 
+    class _DeferredMaintenanceBridge(QObject):
+        finished = pyqtSignal(dict)
+
+    _deferred_maintenance_bridge = _DeferredMaintenanceBridge()
+
     def _native_message_safe(title: str, message: str, flags: int) -> int:
         try:
             from startup.check_start import _native_message
@@ -2232,15 +2237,6 @@ def main():
                 except Exception as e:
                     log(f"Не удалось показать предупреждение Kaspersky: {e}", "⚠️ KASPERSKY")
 
-            telega_found_path = payload.get("telega_found_path")
-            if telega_found_path:
-                log(f"Обнаружена Telega Desktop: {telega_found_path}", "🚨 TELEGA")
-                try:
-                    from startup.telega_check import show_telega_warning
-                    show_telega_warning(window, found_path=str(telega_found_path))
-                except Exception as e:
-                    log(f"Не удалось показать предупреждение Telega: {e}", "🚨 TELEGA")
-
             if not ok and not start_in_tray:
                 log("Некритические проверки не пройдены, продолжаем работу после предупреждения", "⚠ WARNING")
 
@@ -2249,6 +2245,24 @@ def main():
             log(f"Ошибка при обработке результатов проверок: {e}", "❌ ERROR")
 
     _startup_bridge.finished.connect(_on_startup_checks_finished)
+
+    def _on_deferred_maintenance_finished(payload: dict) -> None:
+        try:
+            if bool(payload.get("association_ok")):
+                log("Ассоциация успешно установлена", level="INFO")
+
+            telega_found_path = payload.get("telega_found_path")
+            if telega_found_path:
+                log(f"Обнаружена Telega Desktop: {telega_found_path}", "🚨 TELEGA")
+                try:
+                    from startup.telega_check import show_telega_warning
+                    show_telega_warning(window, found_path=str(telega_found_path))
+                except Exception as e:
+                    log(f"Не удалось показать предупреждение Telega: {e}", "🚨 TELEGA")
+        except Exception as e:
+            log(f"Ошибка поздней служебной проверки: {e}", "❌ ERROR")
+
+    _deferred_maintenance_bridge.finished.connect(_on_deferred_maintenance_finished)
 
     def _run_after_startup_flag(
         flag_attr: str,
@@ -2310,17 +2324,9 @@ def main():
             except Exception:
                 kaspersky_detected = False
 
-            telega_found_path = None
-            try:
-                from startup.telega_check import _check_telega_installed
-                telega_found_path = _check_telega_installed()
-            except Exception:
-                telega_found_path = None
-
             if is_verbose_logging_enabled():
                 from startup.admin_check_debug import debug_admin_status
                 debug_admin_status()
-            set_batfile_association()
 
             try:
                 atexit.register(bfe_cleanup)
@@ -2333,7 +2339,6 @@ def main():
                     "warnings": warnings,
                     "fatal_error": fatal_error,
                     "kaspersky_detected": kaspersky_detected,
-                    "telega_found_path": telega_found_path,
                 }
             )
         except Exception as e:
@@ -2357,6 +2362,47 @@ def main():
         gate_name="startup_checks",
         check_every_ms=250,
         timeout_ms=20000,
+    )
+
+    def _deferred_maintenance_worker():
+        try:
+            telega_found_path = None
+            try:
+                from startup.telega_check import _check_telega_installed
+                telega_found_path = _check_telega_installed()
+            except Exception:
+                telega_found_path = None
+
+            association_ok = bool(set_batfile_association())
+
+            _deferred_maintenance_bridge.finished.emit(
+                {
+                    "association_ok": association_ok,
+                    "telega_found_path": telega_found_path,
+                }
+            )
+        except Exception as e:
+            log(f"Ошибка поздних служебных проверок: {e}", "❌ ERROR")
+            _deferred_maintenance_bridge.finished.emit({})
+
+    def _start_deferred_maintenance():
+        import threading
+        threading.Thread(target=_deferred_maintenance_worker, daemon=True).start()
+
+    def _schedule_deferred_maintenance() -> None:
+        delay_ms = 6000
+        log(
+            f"Проверка Telega Desktop и служебные действия отложены на {delay_ms}ms после post-init",
+            "DEBUG",
+        )
+        QTimer.singleShot(delay_ms, _start_deferred_maintenance)
+
+    _run_after_startup_flag(
+        "_startup_post_init_ready",
+        _schedule_deferred_maintenance,
+        gate_name="deferred_maintenance",
+        check_every_ms=350,
+        timeout_ms=30000,
     )
 
     # ─── Автопроверка обновлений при запуске ───────────────────────────────────

@@ -137,6 +137,7 @@ class StrategyRunnerBase(ABC):
         """Returns the launch preset filename for this runner type."""
         pass
 
+    @abstractmethod
     def start_from_preset_file(self, preset_path: str, strategy_name: str = "Preset") -> bool:
         """
         Starts strategy directly from existing preset file.
@@ -144,8 +145,9 @@ class StrategyRunnerBase(ABC):
         This is the preferred method for launching DPI in the current
         preset-based direct architecture.
 
-        Default implementation reads the file and calls start_strategy_custom.
-        Subclasses (like StrategyRunnerV2) may override for more efficient handling.
+        Concrete runners must implement this explicitly. We do not keep a
+        generic fallback here that silently routes preset launch through the
+        legacy custom-args path.
 
         Args:
             preset_path: Path to the prepared launch preset file
@@ -154,34 +156,7 @@ class StrategyRunnerBase(ABC):
         Returns:
             True if strategy started successfully
         """
-        if not os.path.exists(preset_path):
-            log(f"Preset file not found: {preset_path}", "ERROR")
-            return False
-
-        try:
-            args = self._read_preset_file_args(preset_path)
-            if not args:
-                log(f"Preset file is empty or has no valid arguments: {preset_path}", "ERROR")
-                return False
-
-            log(f"Starting from preset file: {preset_path} ({len(args)} args)", "INFO")
-            return self.start_strategy_custom(args, strategy_name)
-
-        except Exception as e:
-            log(f"Error reading preset file: {e}", "ERROR")
-            return False
-
-    def _read_preset_file_args(self, preset_path: str) -> List[str]:
-        with open(preset_path, 'r', encoding='utf-8') as f:
-            lines = f.readlines()
-
-        args = []
-        for line in lines:
-            line = line.strip()
-            if not line or line.startswith('#'):
-                continue
-            args.append(line)
-        return args
+        pass
 
     def _write_preset_file(self, args: List[str], strategy_name: str) -> str:
         """

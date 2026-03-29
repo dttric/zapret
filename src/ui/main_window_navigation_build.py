@@ -14,6 +14,7 @@ from ui.text_catalog import (
     normalize_language,
     tr as tr_catalog,
 )
+from ui.main_window_pages import get_eager_page_names, get_page_route_key
 
 
 def add_nav_item(window, page_name: PageName, position) -> None:
@@ -23,22 +24,39 @@ def add_nav_item(window, page_name: PageName, position) -> None:
     if page_name in getattr(window, "_nav_items", {}):
         return
 
-    page = window._ensure_page(page_name)
-    if page is None:
-        log(f"[NAV] _add {page_name.name}: page is None - skip", "DEBUG")
+    route_key = get_page_route_key(window, page_name)
+    if not route_key:
+        log(f"[NAV] _add {page_name.name}: route key is missing - skip", "DEBUG")
         return
 
     icon = window._nav_icons.get(page_name, window._default_nav_icon)
     text = get_nav_label(window, page_name)
+    eager_pages = set(get_eager_page_names(window))
 
-    if page_name == PageName.ZAPRET2_ORCHESTRA_CONTROL and page.__class__.__name__ == "Zapret2DirectControlPage":
-        page.setObjectName("Zapret2DirectControlPage_Orchestra")
-    elif not page.objectName():
-        page.setObjectName(page.__class__.__name__)
+    if page_name in eager_pages:
+        page = window._ensure_page(page_name)
+        if page is None:
+            log(f"[NAV] _add eager {page_name.name}: page is None - skip", "DEBUG")
+            return
 
-    log(f"[NAV] addSubInterface {page_name.name} objectName={page.objectName()!r}", "DEBUG")
-    item = window.addSubInterface(page, icon, text, position=position)
-    log(f"[NAV] addSubInterface {page_name.name} item={item}", "DEBUG")
+        if page.objectName() != route_key:
+            page.setObjectName(route_key)
+
+        log(f"[NAV] addSubInterface {page_name.name} objectName={page.objectName()!r}", "DEBUG")
+        item = window.addSubInterface(page, icon, text, position=position)
+        log(f"[NAV] addSubInterface {page_name.name} item={item}", "DEBUG")
+    else:
+        log(f"[NAV] addItem lazy {page_name.name} routeKey={route_key!r}", "DEBUG")
+        item = window.navigationInterface.addItem(
+            routeKey=route_key,
+            icon=icon,
+            text=text,
+            onClick=lambda checked=False, target=page_name: window.show_page(target),
+            selectable=True,
+            position=position,
+        )
+        log(f"[NAV] addItem lazy {page_name.name} item={item}", "DEBUG")
+
     if item is not None:
         window._nav_items[page_name] = item
     else:
