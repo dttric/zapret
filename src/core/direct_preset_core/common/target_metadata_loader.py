@@ -6,6 +6,7 @@ from typing import Dict, Optional
 
 
 _CACHED_TARGET_METADATA: Optional[Dict[str, Dict]] = None
+_CACHED_BROAD_TARGET_METADATA: Optional[Dict[str, Dict]] = None
 
 
 def load_target_metadata() -> Dict[str, Dict]:
@@ -25,9 +26,28 @@ def load_target_metadata() -> Dict[str, Dict]:
     return _CACHED_TARGET_METADATA
 
 
+def load_broad_target_metadata() -> Dict[str, Dict]:
+    global _CACHED_BROAD_TARGET_METADATA
+    if _CACHED_BROAD_TARGET_METADATA is not None:
+        return _CACHED_BROAD_TARGET_METADATA
+
+    builtin = _load_one(_broad_target_metadata_file_path())
+    merged = dict(builtin)
+
+    for key, data in _load_one(_user_broad_target_metadata_file_path()).items():
+        if key in merged:
+            continue
+        merged[key] = data
+
+    _CACHED_BROAD_TARGET_METADATA = merged
+    return _CACHED_BROAD_TARGET_METADATA
+
+
 def invalidate_target_metadata_cache() -> None:
     global _CACHED_TARGET_METADATA
+    global _CACHED_BROAD_TARGET_METADATA
     _CACHED_TARGET_METADATA = None
+    _CACHED_BROAD_TARGET_METADATA = None
 
 
 def _target_metadata_file_path() -> Path:
@@ -45,6 +65,21 @@ def _package_target_metadata_file_path() -> Path:
     return Path(__file__).resolve().parents[1] / "metadata" / "targets.txt"
 
 
+def _broad_target_metadata_file_path() -> Path:
+    user_candidate = _user_broad_target_metadata_file_path()
+    if user_candidate.exists():
+        return user_candidate
+
+    package_candidate = _package_broad_target_metadata_file_path()
+    if package_candidate.exists():
+        return package_candidate
+    return Path("__missing_broad_target_metadata__.txt")
+
+
+def _package_broad_target_metadata_file_path() -> Path:
+    return Path(__file__).resolve().parents[1] / "metadata" / "broad_targets.txt"
+
+
 def _user_target_metadata_file_path() -> Path:
     try:
         from config import get_zapret_userdata_dir
@@ -59,6 +94,22 @@ def _user_target_metadata_file_path() -> Path:
     if appdata:
         return Path(appdata) / "zapret" / "direct_preset_core" / "metadata" / "targets.txt"
     return Path.home() / ".config" / "zapret" / "direct_preset_core" / "metadata" / "targets.txt"
+
+
+def _user_broad_target_metadata_file_path() -> Path:
+    try:
+        from config import get_zapret_userdata_dir
+
+        base = (get_zapret_userdata_dir() or "").strip()
+        if base:
+            return Path(base) / "direct_preset_core" / "metadata" / "broad_targets.txt"
+    except Exception:
+        pass
+
+    appdata = os.environ.get("APPDATA")
+    if appdata:
+        return Path(appdata) / "zapret" / "direct_preset_core" / "metadata" / "broad_targets.txt"
+    return Path.home() / ".config" / "zapret" / "direct_preset_core" / "metadata" / "broad_targets.txt"
 
 
 def _load_one(path: Path) -> Dict[str, Dict]:

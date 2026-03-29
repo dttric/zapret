@@ -15,6 +15,14 @@ class UIManager:
     
     def _get_strategy_name(self) -> str:
         """Получает текущее имя стратегии"""
+        store = getattr(self.app, 'ui_state_store', None)
+        if store is not None:
+            try:
+                strategy_name = store.snapshot().current_strategy_summary
+                if strategy_name:
+                    return strategy_name
+            except Exception:
+                pass
         if hasattr(self.app, 'current_strategy_label'):
             strategy_name = self.app.current_strategy_label.text()
             if strategy_name == "Автостарт DPI отключен":
@@ -89,11 +97,14 @@ class UIManager:
                 launch_method = (get_strategy_launch_method() or "").strip().lower()
             except Exception:
                 launch_method = ""
-            
-            # Обновляем главную страницу
-            home_page = get_loaded_page(self.app, PageName.HOME)
-            if home_page is not None and hasattr(home_page, "update_dpi_status"):
-                home_page.update_dpi_status(is_running, strategy_name)
+
+            store = getattr(self.app, 'ui_state_store', None)
+            if store is not None:
+                store.set_launch_method(launch_method)
+                store.set_dpi_running(is_running)
+                store.set_autostart(autostart_active)
+                if strategy_name:
+                    store.set_current_strategy_summary(strategy_name)
             
             # Обновляем страницу управления
             control_page = get_loaded_page(self.app, PageName.CONTROL)
@@ -101,16 +112,6 @@ class UIManager:
                 control_page.update_status(is_running)
                 if strategy_name:
                     control_page.update_strategy(strategy_name)
-
-            # Direct-zapret2: обновляем главную вкладку "Стратегии" (если есть)
-            z2_control_page = get_loaded_page(self.app, PageName.ZAPRET2_DIRECT_CONTROL)
-            if z2_control_page is not None:
-                try:
-                    z2_control_page.update_status(is_running)
-                    if strategy_name:
-                        z2_control_page.update_strategy(strategy_name)
-                except Exception:
-                    pass
 
             # Direct-zapret1: обновляем страницу управления Zapret 1
             z1_control_page = get_loaded_page(self.app, PageName.ZAPRET1_DIRECT_CONTROL)
@@ -131,11 +132,6 @@ class UIManager:
                         orchestra_z2_control_page.update_strategy(strategy_name)
                 except Exception:
                     pass
-            
-            # Обновляем страницу автозапуска
-            autostart_page = get_loaded_page(self.app, PageName.AUTOSTART)
-            if autostart_page is not None:
-                autostart_page.update_status(autostart_active, strategy_name)
         except Exception as e:
             log(f"Ошибка в _update_all_pages: {e}", "DEBUG")
 

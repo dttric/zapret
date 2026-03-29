@@ -276,6 +276,7 @@ _install_qfluent_label_ctor_compat()
 from ui.main_window import MainWindowUI
 from ui.fluent_app_window import ZapretFluentWindow
 from ui.holiday_effects import HolidayEffectsManager
+from ui.main_window_state import MainWindowStateStore
 
 
 from startup.admin_check import is_admin
@@ -651,18 +652,18 @@ class LupiDPIApp(ZapretFluentWindow, MainWindowUI, ThemeSubscriptionManager):
 
     def set_status(self, text: str) -> None:
         """Sets the status text."""
-        # Обновляем статус на главной странице
-        home_page = get_loaded_page(self, PageName.HOME)
-        if home_page is not None:
-            # Определяем тип статуса по тексту
-            status_type = "neutral"
-            if "работает" in text.lower() or "запущен" in text.lower() or "успешно" in text.lower():
-                status_type = "running"
-            elif "останов" in text.lower() or "ошибка" in text.lower() or "выключен" in text.lower():
-                status_type = "stopped"
-            elif "внимание" in text.lower() or "предупреждение" in text.lower():
-                status_type = "warning"
-            home_page.set_status(text, status_type)
+        status_type = "neutral"
+        lower_text = text.lower()
+        if "работает" in lower_text or "запущен" in lower_text or "успешно" in lower_text:
+            status_type = "running"
+        elif "останов" in lower_text or "ошибка" in lower_text or "выключен" in lower_text:
+            status_type = "stopped"
+        elif "внимание" in lower_text or "предупреждение" in lower_text:
+            status_type = "warning"
+
+        store = getattr(self, "ui_state_store", None)
+        if store is not None:
+            store.set_status_message(text, status_type)
 
     def _register_global_error_notifier(self) -> None:
         """Подключает глобальные ERROR/CRITICAL логи к верхнему InfoBar."""
@@ -1247,6 +1248,12 @@ class LupiDPIApp(ZapretFluentWindow, MainWindowUI, ThemeSubscriptionManager):
         import time as _time
         _t_total = _time.perf_counter()
         log("⏱ Startup: deferred init started", "DEBUG")
+
+        self.ui_state_store = MainWindowStateStore()
+        try:
+            self.ui_state_store.set_launch_method(self._get_launch_method())
+        except Exception:
+            pass
 
         # Build UI: create pages & register with FluentWindow navigation
         _t_build = _time.perf_counter()

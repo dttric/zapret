@@ -71,12 +71,17 @@ def update_current_strategy_display(window, strategy_name: str) -> None:
     except Exception:
         pass
 
+    store = getattr(window, "ui_state_store", None)
+    if store is not None:
+        if launch_method is not None:
+            store.set_launch_method(launch_method)
+        store.set_current_strategy_summary(strategy_name)
+
     control_page = get_loaded_page(window, PageName.CONTROL)
     if control_page is not None and hasattr(control_page, "update_strategy"):
         control_page.update_strategy(strategy_name)
 
     for page_name in (
-        PageName.ZAPRET2_DIRECT_CONTROL,
         PageName.ZAPRET2_ORCHESTRA_CONTROL,
         PageName.ZAPRET2_DIRECT,
         PageName.ZAPRET2_ORCHESTRA,
@@ -88,33 +93,25 @@ def update_current_strategy_display(window, strategy_name: str) -> None:
         if page and hasattr(page, 'update_current_strategy'):
             page.update_current_strategy(strategy_name)
 
-    home_page = get_loaded_page(window, PageName.HOME)
-    if home_page is not None and hasattr(home_page, "update_launch_method_card"):
-        home_page.update_launch_method_card()
-
 
 def update_autostart_display(window, enabled: bool, strategy_name: str = None) -> None:
-    home_page = get_loaded_page(window, PageName.HOME)
-    if home_page is not None and hasattr(home_page, "update_autostart_status"):
-        home_page.update_autostart_status(enabled)
-    autostart_page = get_loaded_page(window, PageName.AUTOSTART)
-    if autostart_page is not None and hasattr(autostart_page, "update_status"):
-        autostart_page.update_status(enabled, strategy_name)
+    store = getattr(window, "ui_state_store", None)
+    if store is not None:
+        if strategy_name:
+            store.set_current_strategy_summary(strategy_name)
+        store.set_autostart(enabled)
 
 
 def update_subscription_display(window, is_premium: bool, days: int = None) -> None:
-    home_page = get_loaded_page(window, PageName.HOME)
-    if home_page is not None and hasattr(home_page, "update_subscription_status"):
-        home_page.update_subscription_status(is_premium, days)
-    about_page = get_loaded_page(window, PageName.ABOUT)
-    if about_page is not None and hasattr(about_page, "update_subscription_status"):
-        about_page.update_subscription_status(is_premium, days)
+    store = getattr(window, "ui_state_store", None)
+    if store is not None:
+        store.set_subscription(is_premium, days)
 
 
 def set_status_text(window, text: str, status: str = "neutral") -> None:
-    home_page = get_loaded_page(window, PageName.HOME)
-    if home_page is not None and hasattr(home_page, "set_status"):
-        home_page.set_status(text, status)
+    store = getattr(window, "ui_state_store", None)
+    if store is not None:
+        store.set_status_message(text, status)
 
 
 def open_subscription_dialog(window) -> None:

@@ -85,6 +85,9 @@ class SubscriptionManager:
     def _apply_subscription_info_to_ui(self, sub_info: Dict[str, Any], *, status_message: Optional[str] = None):
         is_premium = bool(sub_info.get('is_premium'))
         days_remaining = sub_info.get('days_remaining')
+        store = getattr(self.app, 'ui_state_store', None)
+        if store is not None:
+            store.set_subscription(is_premium, days_remaining)
 
         current_theme = getattr(self.app.theme_manager, 'current_theme', None) if hasattr(self.app, 'theme_manager') else None
 

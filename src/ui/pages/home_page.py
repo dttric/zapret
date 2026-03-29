@@ -20,6 +20,7 @@ import qtawesome as qta
 
 from .base_page import BasePage
 from ui.compat_widgets import SettingsCard, StatusIndicator, ActionButton, set_tooltip
+from ui.main_window_state import AppUiState, MainWindowStateStore
 from ui.text_catalog import tr as tr_catalog
 from log import log
 
@@ -283,6 +284,8 @@ class HomePage(BasePage):
         )
 
         self._autostart_worker = None
+        self._ui_state_store = None
+        self._ui_state_unsubscribe = None
         self._home_intro_checked = False
         self._home_intro_running = False
         self._home_intro_pending = 0
@@ -301,6 +304,14 @@ class HomePage(BasePage):
 
     def _get_launch_method_display_name(self) -> str:
         """Возвращает человекочитаемое название текущего метода запуска."""
+        if self._ui_state_store is not None:
+            try:
+                method = self._ui_state_store.snapshot().launch_method
+                if method:
+                    label_key = self._LAUNCH_METHOD_LABELS.get(method, self._LAUNCH_METHOD_LABELS["direct_zapret2"])
+                    return tr_catalog(label_key, language=self._ui_language, default="Zapret 2")
+            except Exception:
+                pass
         try:
             from strategy_menu import get_strategy_launch_method
 
@@ -334,7 +345,50 @@ class HomePage(BasePage):
     
     def _on_autostart_checked(self, enabled: bool):
         """Обработчик результата проверки автозапуска"""
-        self.update_autostart_status(enabled)
+        if self._ui_state_store is not None:
+            self._ui_state_store.set_autostart(enabled)
+        else:
+            self.update_autostart_status(enabled)
+
+    def bind_ui_state_store(self, store: MainWindowStateStore) -> None:
+        if self._ui_state_store is store:
+            return
+
+        unsubscribe = getattr(self, "_ui_state_unsubscribe", None)
+        if callable(unsubscribe):
+            try:
+                unsubscribe()
+            except Exception:
+                pass
+
+        self._ui_state_store = store
+        self._ui_state_unsubscribe = store.subscribe(
+            self._on_ui_state_changed,
+            fields={
+                "dpi_running",
+                "dpi_busy",
+                "dpi_busy_text",
+                "launch_method",
+                "autostart_enabled",
+                "subscription_is_premium",
+                "subscription_days_remaining",
+                "status_text",
+                "status_kind",
+            },
+            emit_initial=True,
+        )
+
+    def _on_ui_state_changed(self, state: AppUiState, _changed_fields: frozenset[str]) -> None:
+        self.update_dpi_status(state.dpi_running, state.current_strategy_summary or None)
+        self.update_autostart_status(state.autostart_enabled)
+        self.update_subscription_status(
+            state.subscription_is_premium,
+            state.subscription_days_remaining,
+        )
+        if state.status_text:
+            self.set_status(state.status_text, state.status_kind or "neutral")
+        self.set_loading(state.dpi_busy, state.dpi_busy_text)
+        self.update_launch_method_card()
         
     def _build_ui(self):
         # Сетка карточек статуса

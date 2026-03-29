@@ -13,6 +13,8 @@ from ui.pages.base_page import BasePage
 from ui.compat_widgets import ActionButton, RefreshButton, ResetActionButton, SettingsCard, StatusIndicator
 from ui.widgets import UnifiedStrategiesList
 from ui.widgets.direct_zapret2_strategies_tree import DirectZapret2StrategiesTree, StrategyTreeRow
+from ui.main_window_pages import get_loaded_page
+from ui.page_names import PageName
 from ui.text_catalog import tr as tr_catalog
 from log import log
 
@@ -170,9 +172,6 @@ class Zapret2OrchestraStrategiesPage(BasePage):
 
     def _navigate_to_control(self) -> None:
         try:
-from ui.page_names import PageName
-from ui.main_window_pages import get_loaded_page
-
             if self.parent_app and hasattr(self.parent_app, "show_page"):
                 self.parent_app.show_page(PageName.ZAPRET2_ORCHESTRA_CONTROL)
         except Exception:

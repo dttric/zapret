@@ -18,6 +18,7 @@ from ui.theme import (
     get_neutral_card_border_qss,
 )
 from ui.theme_semantic import get_semantic_palette
+from ui.main_window_state import AppUiState, MainWindowStateStore
 from ui.text_catalog import tr as tr_catalog
 from log import log
 
@@ -338,6 +339,8 @@ class AutostartPage(BasePage):
         self._current_mode_method = ""
 
         self._autostart_enabled = False
+        self._ui_state_store = None
+        self._ui_state_unsubscribe = None
 
         from qfluentwidgets import qconfig
         qconfig.themeChanged.connect(lambda _: self._apply_theme())
@@ -395,10 +398,10 @@ class AutostartPage(BasePage):
 
         if autostart_type:
             self._current_autostart_type = autostart_type
-            self.update_status(True, self.strategy_name, autostart_type)
+            self._push_autostart_state(True, self.strategy_name, autostart_type)
         else:
             self._current_autostart_type = None
-            self.update_status(False)
+            self._push_autostart_state(False)
 
     @property
     def app_instance(self):
@@ -426,14 +429,19 @@ class AutostartPage(BasePage):
 
             # Обновляем имя стратегии
             if self._app_instance and self.strategy_name is None:
-                if hasattr(self._app_instance, 'current_strategy_label'):
+                store = getattr(self._app_instance, "ui_state_store", None)
+                if store is not None:
+                    strategy_name = store.snapshot().current_strategy_summary
+                    if strategy_name:
+                        self.strategy_name = strategy_name
+                elif hasattr(self._app_instance, 'current_strategy_label'):
                     self.strategy_name = self._app_instance.current_strategy_label.text()
                     if self.strategy_name == "Автостарт DPI отключен":
                         self.strategy_name = None
-                    self.current_strategy_label.setText(
-                        self.strategy_name
-                        or self._tr("page.autostart.strategy.not_selected", "Не выбрана")
-                    )
+                self.current_strategy_label.setText(
+                    self.strategy_name
+                    or self._tr("page.autostart.strategy.not_selected", "Не выбрана")
+                )
 
         except Exception as e:
             log(f"AutostartPage._auto_init ошибка: {e}", "WARNING")
@@ -441,6 +449,45 @@ class AutostartPage(BasePage):
     def set_app_instance(self, app):
         """Устанавливает ссылку на главное приложение"""
         self._app_instance = app
+
+    def bind_ui_state_store(self, store: MainWindowStateStore) -> None:
+        if self._ui_state_store is store:
+            return
+
+        unsubscribe = getattr(self, "_ui_state_unsubscribe", None)
+        if callable(unsubscribe):
+            try:
+                unsubscribe()
+            except Exception:
+                pass
+
+        self._ui_state_store = store
+        self._ui_state_unsubscribe = store.subscribe(
+            self._on_ui_state_changed,
+            fields={"autostart_enabled", "autostart_type", "current_strategy_summary"},
+            emit_initial=True,
+        )
+
+    def _push_autostart_state(
+        self,
+        enabled: bool,
+        strategy_name: str | None = None,
+        autostart_type: str | None = None,
+    ) -> None:
+        if self._ui_state_store is not None:
+            if strategy_name:
+                self._ui_state_store.set_current_strategy_summary(strategy_name)
+            self._ui_state_store.set_autostart(enabled, autostart_type)
+            return
+        self.update_status(enabled, strategy_name, autostart_type)
+
+    def _on_ui_state_changed(self, state: AppUiState, _changed_fields: frozenset[str]) -> None:
+        strategy_name = state.current_strategy_summary or self.strategy_name
+        self.update_status(
+            state.autostart_enabled,
+            strategy_name,
+            state.autostart_type or None,
+        )
 
     def set_strategy_name(self, name: str):
         """Устанавливает имя текущей стратегии"""
@@ -819,6 +866,9 @@ class AutostartPage(BasePage):
     def update_status(self, enabled: bool, strategy_name: str = None, autostart_type: str = None):
         """Обновляет отображение статуса автозапуска"""
         self._autostart_enabled = bool(enabled)
+        self._current_autostart_type = autostart_type if enabled else None
+        if strategy_name:
+            self.strategy_name = strategy_name
         if enabled:
             self.status_label.setText(
                 self._tr("page.autostart.status.enabled.title", "Автозапуск включён")
@@ -906,7 +956,7 @@ class AutostartPage(BasePage):
             removed = cleaner.run()
 
             self._current_autostart_type = None
-            self.update_status(False)
+            self._push_autostart_state(False)
             self.autostart_disabled.emit()
 
             if removed:
@@ -927,7 +977,7 @@ class AutostartPage(BasePage):
 
             if ok:
                 self._current_autostart_type = "gui"
-                self.update_status(True, self.strategy_name, "gui")
+                self._push_autostart_state(True, self.strategy_name, "gui")
                 self.autostart_enabled.emit()
             else:
                 log("Не удалось настроить автозапуск GUI", "ERROR")
@@ -980,7 +1030,7 @@ class AutostartPage(BasePage):
 
         if ok:
             self._current_autostart_type = "service"
-            self.update_status(True, name, "service")
+            self._push_autostart_state(True, name, "service")
             self.autostart_enabled.emit()
 
     def _setup_direct_logon_task(self):
@@ -1006,7 +1056,7 @@ class AutostartPage(BasePage):
 
         if ok:
             self._current_autostart_type = "logon"
-            self.update_status(True, name, "logon")
+            self._push_autostart_state(True, name, "logon")
             self.autostart_enabled.emit()
 
     def _setup_direct_boot_task(self):
@@ -1032,5 +1082,5 @@ class AutostartPage(BasePage):
 
         if ok:
             self._current_autostart_type = "boot"
-            self.update_status(True, name, "boot")
+            self._push_autostart_state(True, name, "boot")
             self.autostart_enabled.emit()

@@ -11,6 +11,11 @@ def handle_main_window_launch_method_changed(window, method: str) -> None:
     from utils.process_killer import kill_winws_all
 
     log(f"Метод запуска изменён на: {method}", "INFO")
+    try:
+        if getattr(window, "ui_state_store", None) is not None:
+            window.ui_state_store.set_launch_method(method)
+    except Exception:
+        pass
 
     if hasattr(window, 'dpi_starter') and window.dpi_starter.check_process_running_wmi(silent=True):
         log("Останавливаем все процессы winws*.exe перед переключением режима...", "INFO")
@@ -85,6 +90,12 @@ def complete_main_window_method_switch(window, method: str) -> None:
 
     try:
         window._preset_runtime_coordinator.setup_active_preset_file_watcher()
+    except Exception:
+        pass
+
+    try:
+        if getattr(window, "ui_state_store", None) is not None:
+            window.ui_state_store.set_launch_method(method)
     except Exception:
         pass
 

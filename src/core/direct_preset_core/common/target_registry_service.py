@@ -33,6 +33,7 @@ def _humanize_base_key(base_key: str) -> str:
 
 class TargetRegistryService:
     def _load_target_metadata(self) -> dict:
+        # Canonical target registry must enrich only normal parser-derived target keys.
         return load_target_metadata()
 
     @staticmethod

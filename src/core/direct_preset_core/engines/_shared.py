@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path, PureWindowsPath
 import re
 
+from ..common.target_key_aliases import resolve_canonical_target_key
 from ..common.source_preset_models import FilterProfile, ProfileSegment, SourcePreset
 
 
@@ -33,12 +34,6 @@ _DIRECTIVE_PREFIXES = (
     "--skip",
     "--cookie",
 )
-
-_DOMAIN_TARGET_ALIASES = {
-    "updates.discord.com": "discord_update",
-    "stable.dl2.discordapp.net": "discord_update",
-}
-
 
 def normalize_text(text: str) -> str:
     return str(text or "").replace("\r\n", "\n").replace("\r", "\n")
@@ -250,8 +245,6 @@ def _base_from_domain(value: str) -> str:
     token = token.replace("*.", "")
     token = token.split("/", 1)[0]
     token = token.split(":", 1)[0]
-    if token in _DOMAIN_TARGET_ALIASES:
-        return _DOMAIN_TARGET_ALIASES[token]
     if "." in token:
         token = token.split(".", 1)[0]
     return re.sub(r"[^0-9a-z]+", "_", token).strip("_")
@@ -259,4 +252,4 @@ def _base_from_domain(value: str) -> str:
 
 def _target_key(base: str, protocol_kind: str) -> str:
     suffix = {"udp": "udp", "l7": "l7"}.get(protocol_kind, "tcp")
-    return f"{base}_{suffix}"
+    return resolve_canonical_target_key(f"{base}_{suffix}")

@@ -123,6 +123,17 @@ def ensure_page_in_stacked_widget(window, page: QWidget | None) -> None:
         pass
 
 
+def bind_page_ui_state(window, page: QWidget | None) -> None:
+    store = getattr(window, "ui_state_store", None)
+    binder = getattr(page, "bind_ui_state_store", None)
+    if store is None or page is None or not callable(binder):
+        return
+    try:
+        binder(store)
+    except Exception:
+        pass
+
+
 def connect_lazy_page_signals(window, page_name: PageName, page: QWidget) -> None:
     if page_name == PageName.HOME:
         for button_attr, handler in (
@@ -633,6 +644,7 @@ def ensure_page(window, name: PageName) -> QWidget | None:
     page = window.pages.get(resolved_name)
     if page is not None:
         window._apply_ui_language_to_page(page)
+        bind_page_ui_state(window, page)
         if bool(getattr(window, "_page_signal_bootstrap_complete", False)):
             ensure_page_in_stacked_widget(window, page)
         return page
@@ -694,6 +706,7 @@ def ensure_page(window, name: PageName) -> QWidget | None:
     window.pages[resolved_name] = page
     setattr(window, attr_name, page)
     window._apply_ui_language_to_page(page)
+    bind_page_ui_state(window, page)
 
     # Legacy alias
     if resolved_name == PageName.HOSTLIST:

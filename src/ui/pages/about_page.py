@@ -19,6 +19,7 @@ from PyQt6.QtWidgets import (
 
 from .base_page import BasePage
 from ui.compat_widgets import SettingsCard, ActionButton, SettingsRow
+from ui.main_window_state import AppUiState, MainWindowStateStore
 from ui.text_catalog import tr as tr_catalog
 from ui.theme import get_theme_tokens
 from log import log
@@ -87,12 +88,38 @@ class AboutPage(BasePage):
 
         self._sub_is_premium = False
         self._sub_days_left: int | None = None
+        self._ui_state_store = None
+        self._ui_state_unsubscribe = None
 
         from qfluentwidgets import qconfig
         qconfig.themeChanged.connect(lambda _: self._apply_theme())
         qconfig.themeColorChanged.connect(lambda _: self._apply_theme())
 
         self._build_ui()
+
+    def bind_ui_state_store(self, store: MainWindowStateStore) -> None:
+        if self._ui_state_store is store:
+            return
+
+        unsubscribe = getattr(self, "_ui_state_unsubscribe", None)
+        if callable(unsubscribe):
+            try:
+                unsubscribe()
+            except Exception:
+                pass
+
+        self._ui_state_store = store
+        self._ui_state_unsubscribe = store.subscribe(
+            self._on_ui_state_changed,
+            fields={"subscription_is_premium", "subscription_days_remaining"},
+            emit_initial=True,
+        )
+
+    def _on_ui_state_changed(self, state: AppUiState, _changed_fields: frozenset[str]) -> None:
+        self.update_subscription_status(
+            state.subscription_is_premium,
+            state.subscription_days_remaining,
+        )
 
     # ─────────────────────────────────────────────────────────────────────────
     # UI building

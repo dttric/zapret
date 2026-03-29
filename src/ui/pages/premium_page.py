@@ -23,6 +23,7 @@ import webbrowser
 
 from .base_page import BasePage
 from ui.compat_widgets import SettingsCard, ActionButton, RefreshButton
+from ui.main_window_state import AppUiState, MainWindowStateStore
 from ui.theme_semantic import get_semantic_palette
 from ui.text_catalog import tr as tr_catalog
 
@@ -163,6 +164,8 @@ class PremiumPage(BasePage):
 
         self._build_ui()
         self._initialized = False
+        self._ui_state_store = None
+        self._ui_state_unsubscribe = None
 
     def _tr(self, key: str, default: str, **kwargs) -> str:
         text = tr_catalog(key, language=self._ui_language, default=default)
@@ -271,6 +274,84 @@ class PremiumPage(BasePage):
             "text_kwargs": dict(text_kwargs or {}),
         }
         self.activation_status.setText(resolved_text)
+
+    def bind_ui_state_store(self, store: MainWindowStateStore) -> None:
+        if self._ui_state_store is store:
+            return
+
+        unsubscribe = getattr(self, "_ui_state_unsubscribe", None)
+        if callable(unsubscribe):
+            try:
+                unsubscribe()
+            except Exception:
+                pass
+
+        self._ui_state_store = store
+        self._ui_state_unsubscribe = store.subscribe(
+            self._on_ui_state_changed,
+            fields={"subscription_is_premium", "subscription_days_remaining"},
+            emit_initial=True,
+        )
+
+    def _on_ui_state_changed(self, state: AppUiState, _changed_fields: frozenset[str]) -> None:
+        self._apply_subscription_snapshot(
+            state.subscription_is_premium,
+            state.subscription_days_remaining,
+        )
+
+    def _apply_subscription_snapshot(self, is_premium: bool, days_remaining: int | None) -> None:
+        if is_premium:
+            if days_remaining is None:
+                self._set_status_badge(
+                    status="active",
+                    text_key="page.premium.status.active.title",
+                    text_default="Premium активен",
+                )
+                self._days_state_kind = "none"
+                self._days_state_value = 0
+            elif days_remaining > 30:
+                self._set_status_badge(
+                    status="active",
+                    text_key="page.premium.status.active.title",
+                    text_default="Premium активен",
+                    details_key="page.premium.status.active.days_left",
+                    details_default="Осталось {days} дней",
+                    details_kwargs={"days": days_remaining},
+                )
+                self._days_state_kind = "normal"
+                self._days_state_value = int(days_remaining)
+            elif days_remaining > 7:
+                self._set_status_badge(
+                    status="warning",
+                    text_key="page.premium.status.active.title",
+                    text_default="Premium активен",
+                    details_key="page.premium.status.active.days_left",
+                    details_default="Осталось {days} дней",
+                    details_kwargs={"days": days_remaining},
+                )
+                self._days_state_kind = "warning"
+                self._days_state_value = int(days_remaining)
+            else:
+                self._set_status_badge(
+                    status="expired",
+                    text_key="page.premium.status.expiring_soon.title",
+                    text_default="Premium скоро закончится",
+                    details_key="page.premium.status.active.days_left",
+                    details_default="Осталось {days} дней",
+                    details_kwargs={"days": days_remaining},
+                )
+                self._days_state_kind = "urgent"
+                self._days_state_value = int(days_remaining)
+        else:
+            self._set_status_badge(
+                status="neutral",
+                text_key="page.premium.status.inactive.title",
+                text_default="Подписка не активирована",
+            )
+            self._days_state_kind = "none"
+            self._days_state_value = 0
+
+        self._render_days_label()
 
     def _render_activation_status(self) -> None:
         state = self._activation_status_state
