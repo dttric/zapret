@@ -4,8 +4,6 @@ from typing import Any, Dict, Optional
 
 from PyQt6.QtCore import QThread, QObject, pyqtSignal
 from log import log
-from ui.main_window_pages import get_loaded_page
-from ui.page_names import PageName
 
 try:
     from qfluentwidgets import InfoBar
@@ -114,11 +112,6 @@ class SubscriptionManager:
             available_themes = self.app.theme_manager.get_available_themes()
             self.app.ui_manager.update_theme_gallery(available_themes)
 
-            appearance_page = get_loaded_page(self.app, PageName.APPEARANCE)
-            if appearance_page is not None:
-                appearance_page.set_premium_status(is_premium)
-                appearance_page.set_current_theme(self.app.theme_manager.current_theme)
-
         self._last_is_premium = is_premium
         if status_message:
             self.app.set_status(status_message)
@@ -188,16 +181,9 @@ class SubscriptionManager:
         # ✅ ИСПОЛЬЗУЕМ UI MANAGER для обновления галереи тем
         if hasattr(self.app, 'theme_manager') and hasattr(self.app, 'ui_manager'):
             available_themes = self.app.theme_manager.get_available_themes()
-            current_theme = self.app.theme_manager.current_theme
             
             # Обновляем галерею тем через UI Manager
             self.app.ui_manager.update_theme_gallery(available_themes)
-            
-            # Обновляем премиум статус на странице оформления
-            appearance_page = get_loaded_page(self.app, PageName.APPEARANCE)
-            if appearance_page is not None:
-                appearance_page.set_premium_status(is_premium)
-                appearance_page.set_current_theme(current_theme)
         
         # Показываем уведомления
         self._show_subscription_notifications(was_premium, is_premium)

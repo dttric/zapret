@@ -7,7 +7,7 @@ from .target_metadata_loader import load_target_metadata
 
 
 @dataclass(frozen=True)
-class TargetMetadata:
+class TargetPresentationMetadata:
     target_key: str
     base_key: str
     display_name: str
@@ -31,9 +31,9 @@ def _humanize_base_key(base_key: str) -> str:
     return " ".join(part[:1].upper() + part[1:] for part in parts)
 
 
-class TargetRegistryService:
+class TargetMetadataService:
     def _load_target_metadata(self) -> dict:
-        # Canonical target registry must enrich only normal parser-derived target keys.
+        # Canonical target metadata service enriches only parser-derived target keys.
         return load_target_metadata()
 
     @staticmethod
@@ -53,20 +53,26 @@ class TargetRegistryService:
             return "L7"
         return "TCP"
 
-    def get_metadata(self, target_key: str) -> TargetMetadata:
+    def get_metadata(self, target_key: str) -> TargetPresentationMetadata:
         normalized_target_key = str(target_key or "").strip().lower()
         base_key = self.base_key_from_target_key(normalized_target_key)
         protocol = self.protocol_from_target_key(normalized_target_key)
         items = self._load_target_metadata()
 
-        # Prefer exact protocol-specific entry (e.g. amazon_tcp, discord_udp).
-        # Fall back to the base key only when the catalog defines a shared entry
-        # like [youtube] for multiple protocol variants.
-        raw = items.get(normalized_target_key) or items.get(base_key) or {}
+        raw = items.get(normalized_target_key)
+        if not raw:
+            for candidate in items.values():
+                aliases = str((candidate or {}).get("aliases") or "").strip().lower()
+                alias_tokens = [token.strip() for token in aliases.split(",") if token.strip()]
+                if normalized_target_key in alias_tokens:
+                    raw = candidate
+                    break
+        if not raw:
+            raw = items.get(base_key) or {}
         display_name = str(raw.get("full_name") or _humanize_base_key(base_key)).strip() or target_key
         ports = str(raw.get("ports") or "").strip()
         strategy_type = str(raw.get("strategy_type") or "").strip().lower() or ("udp" if protocol == "UDP" else "tcp")
-        return TargetMetadata(
+        return TargetPresentationMetadata(
             target_key=normalized_target_key,
             base_key=base_key,
             display_name=display_name,
@@ -84,21 +90,30 @@ class TargetRegistryService:
         )
 
     def build_ui_item(self, target_key: str):
-        meta = self.get_metadata(target_key)
+        metadata = self.get_metadata(target_key)
         return SimpleNamespace(
-            key=meta.target_key,
-            full_name=meta.display_name,
-            description=meta.description,
-            tooltip=meta.tooltip,
-            protocol=meta.protocol,
-            ports=meta.ports,
-            order=meta.order,
-            command_order=meta.order,
-            command_group=meta.command_group,
-            icon_name=meta.icon_name,
-            icon_color=meta.icon_color,
+            key=metadata.target_key,
+            full_name=metadata.display_name,
+            description=metadata.description,
+            tooltip=metadata.tooltip,
+            protocol=metadata.protocol,
+            ports=metadata.ports,
+            order=metadata.order,
+            command_order=metadata.order,
+            command_group=metadata.command_group,
+            icon_name=metadata.icon_name,
+            icon_color=metadata.icon_color,
             base_filter="",
-            base_filter_hostlist=meta.base_filter_hostlist,
-            base_filter_ipset=meta.base_filter_ipset,
-            strategy_type=meta.strategy_type,
+            base_filter_hostlist=metadata.base_filter_hostlist,
+            base_filter_ipset=metadata.base_filter_ipset,
+            strategy_type=metadata.strategy_type,
         )
+
+    @staticmethod
+    def should_include_in_basic_ui(target_key: str) -> bool:
+        normalized = str(target_key or "").strip().lower()
+        if not normalized:
+            return False
+        if normalized.startswith("inline_"):
+            return False
+        return True

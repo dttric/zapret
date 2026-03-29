@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from log import log
 from ui.page_names import PageName
-from ui.main_window_pages import get_loaded_page
 
 
 def get_direct_strategy_summary(window, max_items: int = 2) -> str:
@@ -76,22 +75,6 @@ def update_current_strategy_display(window, strategy_name: str) -> None:
         if launch_method is not None:
             store.set_launch_method(launch_method)
         store.set_current_strategy_summary(strategy_name)
-
-    control_page = get_loaded_page(window, PageName.CONTROL)
-    if control_page is not None and hasattr(control_page, "update_strategy"):
-        control_page.update_strategy(strategy_name)
-
-    for page_name in (
-        PageName.ZAPRET2_ORCHESTRA_CONTROL,
-        PageName.ZAPRET2_DIRECT,
-        PageName.ZAPRET2_ORCHESTRA,
-        PageName.ZAPRET2_ORCHESTRA_USER_PRESETS,
-        PageName.ZAPRET1_DIRECT_CONTROL,
-        PageName.ZAPRET1_DIRECT,
-    ):
-        page = get_loaded_page(window, page_name)
-        if page and hasattr(page, 'update_current_strategy'):
-            page.update_current_strategy(strategy_name)
 
 
 def update_autostart_display(window, enabled: bool, strategy_name: str = None) -> None:

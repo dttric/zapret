@@ -10,6 +10,7 @@ import qtawesome as qta
 
 from .base_page import BasePage
 from ui.compat_widgets import SettingsCard, ActionButton, SettingsRow
+from ui.main_window_state import AppUiState, MainWindowStateStore
 from ui.theme import get_theme_tokens, get_rkn_background_options
 from ui.text_catalog import tr as tr_catalog
 
@@ -79,6 +80,11 @@ class AppearancePage(BasePage):
         self._bg_radio_rkn_chan = None   # RadioButton
         self._rkn_background_combo = None
         self._is_premium = False
+        self._ui_state_store = None
+        self._ui_state_unsubscribe = None
+        self._garland_enabled_state = False
+        self._snowflakes_enabled_state = False
+        self._window_opacity_state = 100
         self._garland_checkbox = None
         self._snowflakes_checkbox = None
         self._opacity_slider = None
@@ -110,9 +116,40 @@ class AppearancePage(BasePage):
             pass
 
         try:
+            self.set_garland_state(self._garland_enabled_state)
+            self.set_snowflakes_state(self._snowflakes_enabled_state)
+            self.set_opacity_value(self._window_opacity_state)
+        except Exception:
+            pass
+
+        try:
             self.set_ui_language(self._ui_language)
         except Exception:
             pass
+
+    def bind_ui_state_store(self, store: MainWindowStateStore) -> None:
+        if self._ui_state_store is store:
+            return
+
+        unsubscribe = getattr(self, "_ui_state_unsubscribe", None)
+        if callable(unsubscribe):
+            try:
+                unsubscribe()
+            except Exception:
+                pass
+
+        self._ui_state_store = store
+        self._ui_state_unsubscribe = store.subscribe(
+            self._on_ui_state_changed,
+            fields={"subscription_is_premium", "garland_enabled", "snowflakes_enabled", "window_opacity"},
+            emit_initial=True,
+        )
+
+    def _on_ui_state_changed(self, state: AppUiState, _changed_fields: frozenset[str]) -> None:
+        self.set_premium_status(state.subscription_is_premium)
+        self.set_garland_state(state.garland_enabled)
+        self.set_snowflakes_state(state.snowflakes_enabled)
+        self.set_opacity_value(state.window_opacity)
 
     def showEvent(self, a0):  # noqa: N802 (Qt naming)
         super().showEvent(a0)
@@ -1227,6 +1264,7 @@ class AppearancePage(BasePage):
 
     def set_garland_state(self, enabled: bool):
         """Устанавливает состояние чекбокса гирлянды (без эмита сигнала)"""
+        self._garland_enabled_state = bool(enabled)
         if self._garland_checkbox:
             self._garland_checkbox.blockSignals(True)
             self._garland_checkbox.setChecked(enabled)
@@ -1234,6 +1272,7 @@ class AppearancePage(BasePage):
 
     def set_snowflakes_state(self, enabled: bool):
         """Устанавливает состояние чекбокса снежинок (без эмита сигнала)"""
+        self._snowflakes_enabled_state = bool(enabled)
         if self._snowflakes_checkbox:
             self._snowflakes_checkbox.blockSignals(True)
             self._snowflakes_checkbox.setChecked(enabled)
@@ -1241,6 +1280,7 @@ class AppearancePage(BasePage):
 
     def set_opacity_value(self, value: int):
         """Устанавливает значение слайдера прозрачности (без эмита сигнала)"""
+        self._window_opacity_state = int(value)
         if self._opacity_slider:
             self._opacity_slider.blockSignals(True)
             self._opacity_slider.setValue(value)

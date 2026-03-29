@@ -53,6 +53,7 @@ except ImportError:
     _HAS_FLUENT = False
 
 from ui.pages.base_page import BasePage
+from ui.main_window_state import AppUiState, MainWindowStateStore
 from ui.compat_widgets import ActionButton, PrimaryActionButton, ResetActionButton, SettingsRow, set_tooltip, SettingsCard
 from ui.pages.dpi_settings_page import Win11ToggleRow, Win11ComboRow, Win11NumberRow
 from ui.widgets.direct_zapret2_strategies_tree import DirectZapret2StrategiesTree, StrategyTreeRow
@@ -620,6 +621,8 @@ class StrategyDetailPage(BasePage):
         self._strategies_loaded_fully = False
         self._page_scroll_by_target: dict[str, int] = {}
         self._tree_scroll_by_target: dict[str, int] = {}
+        self._ui_state_store = None
+        self._ui_state_unsubscribe = None
 
         # Direct preset facade for target settings storage
         from core.presets.direct_facade import DirectPresetFacade
@@ -896,9 +899,9 @@ class StrategyDetailPage(BasePage):
         # BreadcrumbBar physically deletes trailing items on click —
         # restore the full path immediately so the widget is correct when we return.
         if self._breadcrumb is not None and self._target_key:
-            cat_name = ""
+            target_title = ""
             try:
-                cat_name = self._target_info.full_name if self._target_info else ""
+                target_title = self._target_info.full_name if self._target_info else ""
             except Exception:
                 pass
             self._breadcrumb.blockSignals(True)
@@ -908,7 +911,7 @@ class StrategyDetailPage(BasePage):
                 self._breadcrumb.addItem("strategies", self._tr("page.z2_strategy_detail.breadcrumb.strategies", "Стратегии DPI"))
                 self._breadcrumb.addItem(
                     "detail",
-                    cat_name or self._tr("page.z2_strategy_detail.header.category_fallback", "Target"),
+                    target_title or self._tr("page.z2_strategy_detail.header.category_fallback", "Target"),
                 )
             finally:
                 self._breadcrumb.blockSignals(False)
@@ -1764,6 +1767,28 @@ class StrategyDetailPage(BasePage):
             except Exception:
                 pass
 
+    def bind_ui_state_store(self, store: MainWindowStateStore) -> None:
+        if self._ui_state_store is store:
+            return
+
+        unsubscribe = getattr(self, "_ui_state_unsubscribe", None)
+        if callable(unsubscribe):
+            try:
+                unsubscribe()
+            except Exception:
+                pass
+
+        self._ui_state_store = store
+        self._ui_state_unsubscribe = store.subscribe(
+            self._on_ui_state_changed,
+            fields={"preset_revision"},
+            emit_initial=False,
+        )
+
+    def _on_ui_state_changed(self, _state: AppUiState, changed_fields: frozenset[str]) -> None:
+        if "preset_revision" in changed_fields:
+            self.refresh_from_preset_switch()
+
     def _apply_preset_refresh(self):
         if not self._target_key:
             return
@@ -1861,7 +1886,7 @@ class StrategyDetailPage(BasePage):
             if target_info:
                 log(f"StrategyDetailPage: target {self._target_key}, strategy_type={target_info.strategy_type}", "DEBUG")
             else:
-                log(f"StrategyDetailPage: target {self._target_key} не найден в metadata helper!", "ERROR")
+                log(f"StrategyDetailPage: target {self._target_key} не найден в target metadata service!", "ERROR")
                 return
 
             # Получаем стратегии для target'а из нового direct preset core
@@ -3666,17 +3691,17 @@ class StrategyDetailPage(BasePage):
             self._parent_link.setText(self._tr("page.z2_strategy_detail.back.strategies", "Стратегии DPI"))
 
         if getattr(self, "_title", None) is not None:
-            cat_name = ""
+            target_title = ""
             protocol = ""
             ports = ""
             try:
                 if self._target_info:
-                    cat_name = str(getattr(self._target_info, "full_name", "") or "").strip()
+                    target_title = str(getattr(self._target_info, "full_name", "") or "").strip()
                     protocol = str(getattr(self._target_info, "protocol", "") or "").strip()
                     ports = str(getattr(self._target_info, "ports", "") or "").strip()
             except Exception:
                 pass
-            self._title.setText(cat_name or self._tr("page.z2_strategy_detail.header.select_category", "Выберите target"))
+            self._title.setText(target_title or self._tr("page.z2_strategy_detail.header.select_category", "Выберите target"))
             if getattr(self, "_subtitle", None) is not None:
                 if protocol:
                     self._subtitle.setText(

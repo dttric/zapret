@@ -921,10 +921,6 @@ class MainWindowUI:
     def _on_subscription_updated(self, is_premium: bool, days_remaining: int):
         on_subscription_updated(self, is_premium, days_remaining)
 
-        appearance_page = self.get_loaded_page(PageName.APPEARANCE)
-        if appearance_page is not None:
-            appearance_page.set_premium_status(is_premium)
-
     def _on_strategy_selected_from_page(self, strategy_id: str, strategy_name: str):
         from log import log
         try:

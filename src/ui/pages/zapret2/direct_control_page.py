@@ -978,11 +978,23 @@ class Zapret2DirectControlPage(BasePage):
         self._ui_state_store = store
         self._ui_state_unsubscribe = store.subscribe(
             self._on_ui_state_changed,
-            fields={"dpi_running", "dpi_busy", "dpi_busy_text", "current_strategy_summary", "launch_method"},
+            fields={
+                "dpi_running",
+                "dpi_busy",
+                "dpi_busy_text",
+                "current_strategy_summary",
+                "launch_method",
+                "preset_revision",
+                "mode_revision",
+            },
             emit_initial=True,
         )
 
-    def _on_ui_state_changed(self, state: AppUiState, _changed_fields: frozenset[str]) -> None:
+    def _on_ui_state_changed(self, state: AppUiState, changed_fields: frozenset[str]) -> None:
+        if "mode_revision" in changed_fields:
+            self._sync_direct_launch_mode_from_settings()
+        if "preset_revision" in changed_fields:
+            self._load_advanced_settings()
         self.set_loading(state.dpi_busy, state.dpi_busy_text)
         self.update_status(state.dpi_running)
         self.update_strategy(state.current_strategy_summary or "")

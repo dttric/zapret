@@ -13,6 +13,7 @@ import qtawesome as qta
 
 from ui.pages.base_page import BasePage
 from ui.compat_widgets import SettingsCard, ActionButton, RefreshButton
+from ui.main_window_state import AppUiState, MainWindowStateStore
 from ui.widgets import PresetTargetsList
 from ui.theme import get_theme_tokens
 from ui.text_catalog import tr as tr_catalog
@@ -89,6 +90,8 @@ class Zapret2StrategiesPageNew(BasePage):
         self._built = False
         self._build_scheduled = False
         self._strategy_set_snapshot = None
+        self._ui_state_store = None
+        self._ui_state_unsubscribe = None
         self._telegram_hint_label = None
         self._telegram_btn = None
         self._expand_btn = None
@@ -172,10 +175,11 @@ class Zapret2StrategiesPageNew(BasePage):
             from core.presets.direct_facade import DirectPresetFacade
 
             facade = DirectPresetFacade.from_launch_method("direct_zapret2")
-            target_views = facade.list_target_views() or []
-            target_items = facade.get_target_ui_items() or {}
-            self.target_selections = facade.get_strategy_selections() or {}
-            filter_modes = {key: facade.get_target_filter_mode(key) for key in target_items.keys()}
+            payload = facade.get_basic_ui_payload()
+            target_views = list(payload.target_views or ())
+            target_items = payload.target_items or {}
+            self.target_selections = payload.strategy_selections or {}
+            filter_modes = payload.filter_modes or {}
 
             # Карточка с кнопкой Telegram (выделенная, акцентная)
             telegram_card = SettingsCard()
@@ -401,9 +405,10 @@ class Zapret2StrategiesPageNew(BasePage):
             from core.presets.direct_facade import DirectPresetFacade
 
             facade = DirectPresetFacade.from_launch_method("direct_zapret2")
-            target_items = facade.get_target_ui_items() or {}
-            self.target_selections = facade.get_strategy_selections() or {}
-            filter_modes = {key: facade.get_target_filter_mode(key) for key in target_items.keys()}
+            payload = facade.get_basic_ui_payload()
+            target_items = payload.target_items or {}
+            self.target_selections = payload.strategy_selections or {}
+            filter_modes = payload.filter_modes or {}
 
             if self._targets_list:
                 self._targets_list.set_selections(self.target_selections)
@@ -456,6 +461,33 @@ class Zapret2StrategiesPageNew(BasePage):
             self.current_strategy_label.setText(
                 tr_catalog("page.z2_direct.current.not_selected", language=self._ui_language, default="Не выбрана")
             )
+
+    def bind_ui_state_store(self, store: MainWindowStateStore) -> None:
+        if self._ui_state_store is store:
+            return
+
+        unsubscribe = getattr(self, "_ui_state_unsubscribe", None)
+        if callable(unsubscribe):
+            try:
+                unsubscribe()
+            except Exception:
+                pass
+
+        self._ui_state_store = store
+        self._ui_state_unsubscribe = store.subscribe(
+            self._on_ui_state_changed,
+            fields={"current_strategy_summary", "preset_revision", "mode_revision"},
+            emit_initial=True,
+        )
+
+    def _on_ui_state_changed(self, state: AppUiState, changed_fields: frozenset[str]) -> None:
+        if "mode_revision" in changed_fields:
+            self.reload_for_mode_change()
+            return
+        if "preset_revision" in changed_fields:
+            self.refresh_from_preset_switch()
+        if "current_strategy_summary" in changed_fields or not changed_fields:
+            self.update_current_strategy(state.current_strategy_summary)
 
     def show_loading(self):
         """Совместимость: показывает спиннер"""

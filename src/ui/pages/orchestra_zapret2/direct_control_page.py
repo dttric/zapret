@@ -137,6 +137,28 @@ class OrchestraZapret2DirectControlPage(Zapret2DirectControlPage):
         except Exception:
             pass
 
+    def _load_advanced_settings(self) -> None:
+        """Sync orchestra-specific advanced toggles from the active orchestra preset."""
+        try:
+            from discord.discord_restart import get_discord_restart_setting
+
+            toggle = getattr(self, "discord_restart_toggle", None)
+            set_checked = getattr(toggle, "setChecked", None)
+            if callable(set_checked):
+                set_checked(get_discord_restart_setting(default=True), block_signals=True)
+        except Exception:
+            pass
+
+        try:
+            from preset_orchestra_zapret2 import PresetManager
+
+            debug_toggle = getattr(self, "debug_log_toggle", None)
+            set_checked = getattr(debug_toggle, "setChecked", None)
+            if callable(set_checked):
+                set_checked(bool(PresetManager().get_debug_log_enabled()), block_signals=True)
+        except Exception:
+            pass
+
     def update_strategy(self, name: str):
         super().update_strategy(name)
 

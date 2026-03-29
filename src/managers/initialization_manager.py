@@ -2,10 +2,8 @@
 
 import threading
 
-from PyQt6.QtCore import QTimer, QThread, QObject, pyqtSignal
+from PyQt6.QtCore import QTimer
 from log import log
-from ui.main_window_pages import get_loaded_page
-from ui.page_names import PageName
 
 
 class InitializationManager:
@@ -498,21 +496,13 @@ class InitializationManager:
             
             # ✅ Получаем текущую тему из theme_manager
             current_theme = self.app.theme_manager.current_theme
-            
-            # ✅ ВСЕГДА устанавливаем текущую тему и премиум статус в appearance_page
-            appearance_page = get_loaded_page(self.app, PageName.APPEARANCE)
-            if appearance_page is not None:
-                appearance_page.set_current_theme(current_theme)
-                
-                # Устанавливаем премиум статус
-                is_premium = False
-                if hasattr(self.app, 'donate_checker') and self.app.donate_checker:
-                    try:
-                        is_premium, _, _ = self.app.donate_checker.check_subscription_status(use_cache=True)
-                    except Exception:
-                        pass
-                appearance_page.set_premium_status(is_premium)
-                log(f"🎨 Установлена текущая тема в галерее: '{current_theme}' (premium={is_premium})", "DEBUG")
+            is_premium = False
+            if hasattr(self.app, 'donate_checker') and self.app.donate_checker:
+                try:
+                    is_premium, _, _ = self.app.donate_checker.check_subscription_status(use_cache=True)
+                except Exception:
+                    pass
+            log(f"🎨 Тема инициализирована: '{current_theme}' (premium={is_premium})", "DEBUG")
             
             # ✅ qfluentwidgets manages ALL styling via setTheme(DARK/LIGHT/AUTO).
             # Legacy qt-material CSS (overlay_css) conflicts with FluentWindow's internal

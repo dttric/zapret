@@ -18,7 +18,7 @@ from .common.source_preset_models import (
     TargetProfileSnapshot,
 )
 from .common.strategy_catalogs import StrategyEntry, load_strategy_catalogs
-from .common.target_registry_service import TargetRegistryService
+from .common.target_metadata_service import TargetMetadataService
 from .engines import winws1_classifier, winws1_parser, winws1_rules, winws1_serializer
 from .engines import winws2_classifier, winws2_parser, winws2_rules, winws2_serializer
 
@@ -30,11 +30,19 @@ class _ResolvedTargetState:
     raw_action_lines: tuple[str, ...]
 
 
+@dataclass(frozen=True)
+class BasicUiPayload:
+    target_views: tuple
+    target_items: dict[str, Any]
+    strategy_selections: dict[str, str]
+    filter_modes: dict[str, str]
+
+
 class DirectPresetService:
     def __init__(self, paths: AppPaths, engine: str):
         self._paths = paths
         self._engine = str(engine or "").strip().lower()
-        self._registry = TargetRegistryService()
+        self._target_metadata = TargetMetadataService()
 
     def read_source_preset(self, path: Path) -> SourcePreset:
         text = Path(path).read_text(encoding="utf-8", errors="replace")
@@ -74,7 +82,7 @@ class DirectPresetService:
         contexts: dict[str, TargetContext] = {}
         for target_key, index in canonical_indices.items():
             profile = canonical_profiles[target_key]
-            metadata = self._registry.get_metadata(target_key)
+            metadata = self._target_metadata.get_metadata(target_key)
             contexts[target_key] = TargetContext(
                 target_key=target_key,
                 profile_index=index,
@@ -90,12 +98,47 @@ class DirectPresetService:
         return contexts
 
     def build_target_views(self, source: SourcePreset):
-        return build_target_views(self.collect_target_contexts(source))
+        contexts = {
+            key: ctx
+            for key, ctx in self.collect_target_contexts(source).items()
+            if self._target_metadata.should_include_in_basic_ui(key)
+        }
+        return build_target_views(contexts)
+
+    def build_basic_ui_payload(self, source: SourcePreset) -> BasicUiPayload:
+        contexts = self.collect_target_contexts(source)
+        basic_contexts = {
+            key: ctx
+            for key, ctx in contexts.items()
+            if self._target_metadata.should_include_in_basic_ui(key)
+        }
+
+        target_views = tuple(build_target_views(basic_contexts))
+        target_items = {
+            key: self._target_metadata.build_ui_item(key)
+            for key in basic_contexts
+        }
+        strategy_selections = {
+            key: self.get_target_details(source, key).current_strategy
+            for key in basic_contexts
+        }
+        filter_modes = {
+            key: ctx.filter_mode
+            for key, ctx in basic_contexts.items()
+        }
+        return BasicUiPayload(
+            target_views=target_views,
+            target_items=target_items,
+            strategy_selections=strategy_selections,
+            filter_modes=filter_modes,
+        )
 
     def build_ui_items(self, source: SourcePreset) -> dict[str, Any]:
         items: dict[str, Any] = {}
         for target_key in self.collect_target_contexts(source):
-            items[target_key] = self._registry.build_ui_item(target_key)
+            if not self._target_metadata.should_include_in_basic_ui(target_key):
+                continue
+            items[target_key] = self._target_metadata.build_ui_item(target_key)
         return items
 
     def get_target_details(self, source: SourcePreset, target_key: str) -> PresetTargetDetails | None:
@@ -125,7 +168,7 @@ class DirectPresetService:
         if ctx is None:
             return False
         profile_index = split_profile_for_target(source, ctx.profile_index, normalized_key)
-        base_key = self._registry.base_key_from_target_key(normalized_key)
+        base_key = self._target_metadata.base_key_from_target_key(normalized_key)
         new_line = f"--{normalized_mode}=lists/{'ipset-' if normalized_mode == 'ipset' else ''}{base_key}.txt"
         replace_profile_selector_line(source, profile_index, normalized_key, new_line, normalized_mode)
         return True
@@ -228,7 +271,7 @@ class DirectPresetService:
         contexts = self.collect_target_contexts(source)
         if target_key not in contexts:
             return None
-        return self._registry.build_ui_item(target_key)
+        return self._target_metadata.build_ui_item(target_key)
 
     def get_strategy_entries(self, source: SourcePreset, target_key: str) -> dict[str, dict[str, str]]:
         contexts = self.collect_target_contexts(source)

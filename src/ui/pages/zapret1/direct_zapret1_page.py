@@ -10,6 +10,7 @@ from PyQt6.QtWidgets import QWidget, QHBoxLayout
 
 from ui.pages.base_page import BasePage
 from ui.compat_widgets import ActionButton, RefreshButton, SettingsCard
+from ui.main_window_state import AppUiState, MainWindowStateStore
 from ui.text_catalog import tr as tr_catalog
 from ui.widgets import PresetTargetsList
 from log import log
@@ -65,6 +66,8 @@ class Zapret1StrategiesPage(BasePage):
         self._collapse_btn = None
         self._info_btn = None
         self._empty_state_label = None
+        self._ui_state_store = None
+        self._ui_state_unsubscribe = None
 
         self._setup_breadcrumb()
 
@@ -230,7 +233,7 @@ class Zapret1StrategiesPage(BasePage):
         try:
             from core.presets.direct_facade import DirectPresetFacade
 
-            return DirectPresetFacade.from_launch_method("direct_zapret1").get_target_ui_items() or {}
+            return DirectPresetFacade.from_launch_method("direct_zapret1").get_basic_ui_payload().target_items or {}
         except Exception:
             return {}
 
@@ -239,7 +242,7 @@ class Zapret1StrategiesPage(BasePage):
         try:
             from core.presets.direct_facade import DirectPresetFacade
 
-            return DirectPresetFacade.from_launch_method("direct_zapret1").get_strategy_selections() or {}
+            return DirectPresetFacade.from_launch_method("direct_zapret1").get_basic_ui_payload().strategy_selections or {}
         except Exception:
             return {}
 
@@ -248,7 +251,7 @@ class Zapret1StrategiesPage(BasePage):
         try:
             from core.presets.direct_facade import DirectPresetFacade
 
-            return DirectPresetFacade.from_launch_method("direct_zapret1").list_target_views() or []
+            return list(DirectPresetFacade.from_launch_method("direct_zapret1").get_basic_ui_payload().target_views or ())
         except Exception:
             return []
 
@@ -257,9 +260,7 @@ class Zapret1StrategiesPage(BasePage):
         try:
             from core.presets.direct_facade import DirectPresetFacade
 
-            facade = DirectPresetFacade.from_launch_method("direct_zapret1")
-            targets = facade.get_target_ui_items() or {}
-            return {key: facade.get_target_filter_mode(key) for key in targets.keys()}
+            return DirectPresetFacade.from_launch_method("direct_zapret1").get_basic_ui_payload().filter_modes or {}
         except Exception:
             return {}
 
@@ -418,6 +419,28 @@ class Zapret1StrategiesPage(BasePage):
         # Direct Z1 target list page does not show a separate current-strategy label,
         # but MainWindow still calls this hook on all strategy pages.
         _ = name
+
+    def bind_ui_state_store(self, store: MainWindowStateStore) -> None:
+        if self._ui_state_store is store:
+            return
+
+        unsubscribe = getattr(self, "_ui_state_unsubscribe", None)
+        if callable(unsubscribe):
+            try:
+                unsubscribe()
+            except Exception:
+                pass
+
+        self._ui_state_store = store
+        self._ui_state_unsubscribe = store.subscribe(
+            self._on_ui_state_changed,
+            fields={"preset_revision", "mode_revision"},
+            emit_initial=True,
+        )
+
+    def _on_ui_state_changed(self, _state: AppUiState, changed_fields: frozenset[str]) -> None:
+        if "preset_revision" in changed_fields or "mode_revision" in changed_fields:
+            self.reload_for_mode_change()
 
     def set_ui_language(self, language: str) -> None:
         super().set_ui_language(language)

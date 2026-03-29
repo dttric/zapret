@@ -451,7 +451,7 @@ class Zapret1StrategyDetailPage(BasePage):
         if self._breadcrumb is None:
             return
 
-        cat_name = self._target_info.get("full_name", self._target_key) if self._target_key else "Target"
+        target_title = self._target_info.get("full_name", self._target_key) if self._target_key else "Target"
         self._breadcrumb.blockSignals(True)
         try:
             self._breadcrumb.clear()
@@ -463,7 +463,7 @@ class Zapret1StrategyDetailPage(BasePage):
                 "strategies",
                 self._tr("page.z1_strategy_detail.breadcrumb.strategies", "Прямой запуск Zapret 1"),
             )
-            self._breadcrumb.addItem("detail", cat_name)
+            self._breadcrumb.addItem("detail", target_title)
         finally:
             self._breadcrumb.blockSignals(False)
 

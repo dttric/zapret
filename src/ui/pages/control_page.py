@@ -22,6 +22,7 @@ except ImportError:
 from .base_page import BasePage
 from ui.compat_widgets import SettingsRow, PulsingDot
 from ui.compat_widgets import SettingsCard, ActionButton, PrimaryActionButton, ResetActionButton, StatusIndicator, set_tooltip
+from ui.main_window_state import AppUiState, MainWindowStateStore
 from ui.text_catalog import tr as tr_catalog
 
 try:
@@ -61,6 +62,8 @@ class ControlPage(BasePage):
             subtitle_key="page.control.subtitle",
         )
         self._program_settings_synced = False
+        self._ui_state_store = None
+        self._ui_state_unsubscribe = None
         
         self._build_ui()
         self._update_stop_winws_button_text()
@@ -638,6 +641,29 @@ class ControlPage(BasePage):
         self.start_btn._update_style()
         self.stop_winws_btn._update_style()
         self.stop_and_exit_btn._update_style()
+
+    def bind_ui_state_store(self, store: MainWindowStateStore) -> None:
+        if self._ui_state_store is store:
+            return
+
+        unsubscribe = getattr(self, "_ui_state_unsubscribe", None)
+        if callable(unsubscribe):
+            try:
+                unsubscribe()
+            except Exception:
+                pass
+
+        self._ui_state_store = store
+        self._ui_state_unsubscribe = store.subscribe(
+            self._on_ui_state_changed,
+            fields={"dpi_running", "dpi_busy", "dpi_busy_text", "current_strategy_summary"},
+            emit_initial=True,
+        )
+
+    def _on_ui_state_changed(self, state: AppUiState, _changed_fields: frozenset[str]) -> None:
+        self.set_loading(state.dpi_busy, state.dpi_busy_text)
+        self.update_status(state.dpi_running)
+        self.update_strategy(state.current_strategy_summary or "")
 
     def set_ui_language(self, language: str) -> None:
         super().set_ui_language(language)

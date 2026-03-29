@@ -16,6 +16,11 @@ class AppUiState:
     autostart_type: str = ""
     subscription_is_premium: bool = False
     subscription_days_remaining: int | None = None
+    garland_enabled: bool = False
+    snowflakes_enabled: bool = False
+    window_opacity: int = 100
+    preset_revision: int = 0
+    mode_revision: int = 0
     status_text: str = ""
     status_kind: str = "neutral"
 
@@ -112,6 +117,23 @@ class MainWindowStateStore:
             subscription_is_premium=bool(is_premium),
             subscription_days_remaining=normalized_days,
         )
+
+    def set_holiday_overlays(self, garland_enabled: bool, snowflakes_enabled: bool) -> bool:
+        return self.update(
+            garland_enabled=bool(garland_enabled),
+            snowflakes_enabled=bool(snowflakes_enabled),
+        )
+
+    def set_window_opacity_value(self, value: int) -> bool:
+        return self.update(window_opacity=max(0, min(100, int(value))))
+
+    def bump_preset_revision(self) -> bool:
+        current = self.snapshot().preset_revision
+        return self.update(preset_revision=int(current) + 1)
+
+    def bump_mode_revision(self) -> bool:
+        current = self.snapshot().mode_revision
+        return self.update(mode_revision=int(current) + 1)
 
     def set_status_message(self, text: str, kind: str = "neutral") -> bool:
         return self.update(status_text=str(text or ""), status_kind=str(kind or "neutral"))

@@ -108,6 +108,14 @@ class PresetRuntimeCoordinator(QObject):
 
     def schedule_refresh_after_preset_switch(self, delay_ms: int = 0) -> None:
         try:
+            try:
+                parent = self.parent()
+                store = getattr(parent, "ui_state_store", None)
+                if store is not None:
+                    store.bump_preset_revision()
+            except Exception:
+                pass
+
             timer = self._preset_switch_refresh_timer
             if timer is None:
                 timer = QTimer(self)

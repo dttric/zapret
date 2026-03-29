@@ -11,6 +11,7 @@ from PyQt6.QtWidgets import QWidget, QHBoxLayout, QVBoxLayout
 
 from ui.pages.base_page import BasePage
 from ui.compat_widgets import ActionButton, RefreshButton, ResetActionButton, SettingsCard, StatusIndicator
+from ui.main_window_state import AppUiState, MainWindowStateStore
 from ui.widgets import UnifiedStrategiesList
 from ui.widgets.direct_zapret2_strategies_tree import DirectZapret2StrategiesTree, StrategyTreeRow
 from ui.main_window_pages import get_loaded_page
@@ -95,6 +96,8 @@ class Zapret2OrchestraStrategiesPage(BasePage):
         self._reload_btn: RefreshButton | None = None
         self._status_indicator: StatusIndicator | None = None
         self.current_strategy_label: Any = None
+        self._ui_state_store = None
+        self._ui_state_unsubscribe = None
 
         self._built = False
         self._current_mode = None
@@ -967,6 +970,33 @@ class Zapret2OrchestraStrategiesPage(BasePage):
     def update_current_strategy(self, name: str) -> None:
         _ = name
         self._refresh_runtime_state()
+
+    def bind_ui_state_store(self, store: MainWindowStateStore) -> None:
+        if self._ui_state_store is store:
+            return
+
+        unsubscribe = getattr(self, "_ui_state_unsubscribe", None)
+        if callable(unsubscribe):
+            try:
+                unsubscribe()
+            except Exception:
+                pass
+
+        self._ui_state_store = store
+        self._ui_state_unsubscribe = store.subscribe(
+            self._on_ui_state_changed,
+            fields={"current_strategy_summary", "preset_revision", "mode_revision"},
+            emit_initial=True,
+        )
+
+    def _on_ui_state_changed(self, state: AppUiState, changed_fields: frozenset[str]) -> None:
+        if "mode_revision" in changed_fields:
+            self.reload_for_mode_change()
+            return
+        if "preset_revision" in changed_fields:
+            self._refresh_runtime_state()
+        if "current_strategy_summary" in changed_fields or not changed_fields:
+            self.update_current_strategy(state.current_strategy_summary)
 
     def reload_for_mode_change(self) -> None:
         self._stop_process_monitoring()

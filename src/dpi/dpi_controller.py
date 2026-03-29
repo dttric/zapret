@@ -2,12 +2,10 @@
 Контроллер для управления DPI - содержит всю логику запуска и остановки
 """
 
-from PyQt6.QtCore import QThread, QObject, pyqtSignal, QMetaObject, Qt, Q_ARG, QTimer
+from PyQt6.QtCore import QThread, QObject, pyqtSignal, QMetaObject, Qt, QTimer
 from pathlib import Path
 from strategy_menu import get_strategy_launch_method
 from log import log
-from ui.main_window_pages import get_loaded_page
-from ui.page_names import PageName
 from dpi.process_health_check import (
     diagnose_startup_error,
     check_conflicting_processes,
@@ -841,17 +839,6 @@ class DPIController:
         if hasattr(self.app, 'main_window') and hasattr(self.app.main_window, 'strategies_page'):
             self.app.main_window.strategies_page.show_loading()
         
-        # ✅ Показываем индикатор загрузки на страницах
-        for page_name in (
-            PageName.CONTROL,
-            PageName.ZAPRET2_ORCHESTRA_CONTROL,
-        ):
-            page = get_loaded_page(self.app, page_name)
-            if page is not None:
-                try:
-                    page.set_loading(True, "Запуск Zapret...")
-                except Exception:
-                    pass
         store = getattr(self.app, "ui_state_store", None)
         if store is not None:
             store.set_dpi_busy(True, "Запуск Zapret...")
@@ -916,17 +903,6 @@ class DPIController:
         if hasattr(self.app, 'main_window') and hasattr(self.app.main_window, 'strategies_page'):
             self.app.main_window.strategies_page.show_loading()
         
-        # ✅ Показываем индикатор загрузки на страницах
-        for page_name in (
-            PageName.CONTROL,
-            PageName.ZAPRET2_ORCHESTRA_CONTROL,
-        ):
-            page = get_loaded_page(self.app, page_name)
-            if page is not None:
-                try:
-                    page.set_loading(True, "Остановка Zapret...")
-                except Exception:
-                    pass
         store = getattr(self.app, "ui_state_store", None)
         if store is not None:
             store.set_dpi_busy(True, "Остановка Zapret...")
@@ -988,17 +964,6 @@ class DPIController:
     def _on_dpi_start_finished(self, success, error_message):
         """Обрабатывает завершение асинхронного запуска DPI"""
         try:
-            # ✅ Скрываем индикатор загрузки на страницах
-            for page_name in (
-                PageName.CONTROL,
-                PageName.ZAPRET2_ORCHESTRA_CONTROL,
-            ):
-                page = get_loaded_page(self.app, page_name)
-                if page is not None:
-                    try:
-                        page.set_loading(False)
-                    except Exception:
-                        pass
             store = getattr(self.app, "ui_state_store", None)
             if store is not None:
                 store.set_dpi_busy(False)
@@ -1108,17 +1073,6 @@ class DPIController:
     def _on_dpi_stop_finished(self, success, error_message):
         """Обрабатывает завершение асинхронной остановки DPI"""
         try:
-            # ✅ Скрываем индикатор загрузки на страницах
-            for page_name in (
-                PageName.CONTROL,
-                PageName.ZAPRET2_ORCHESTRA_CONTROL,
-            ):
-                page = get_loaded_page(self.app, page_name)
-                if page is not None:
-                    try:
-                        page.set_loading(False)
-                    except Exception:
-                        pass
             store = getattr(self.app, "ui_state_store", None)
             if store is not None:
                 store.set_dpi_busy(False)

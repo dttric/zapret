@@ -23,11 +23,11 @@ class UIManager:
                     return strategy_name
             except Exception:
                 pass
-        if hasattr(self.app, 'current_strategy_label'):
-            strategy_name = self.app.current_strategy_label.text()
-            if strategy_name == "Автостарт DPI отключен":
-                return None
-            return strategy_name
+        strategy_name = getattr(self.app, 'current_strategy_name', None)
+        if strategy_name == "Автостарт DPI отключен":
+            return None
+        if strategy_name:
+            return str(strategy_name)
         return None
 
     def update_theme_gallery(self, available_themes: list = None) -> None:
@@ -106,32 +106,6 @@ class UIManager:
                 if strategy_name:
                     store.set_current_strategy_summary(strategy_name)
             
-            # Обновляем страницу управления
-            control_page = get_loaded_page(self.app, PageName.CONTROL)
-            if control_page is not None:
-                control_page.update_status(is_running)
-                if strategy_name:
-                    control_page.update_strategy(strategy_name)
-
-            # Direct-zapret1: обновляем страницу управления Zapret 1
-            z1_control_page = get_loaded_page(self.app, PageName.ZAPRET1_DIRECT_CONTROL)
-            if z1_control_page is not None:
-                try:
-                    z1_control_page.update_status(is_running)
-                    if strategy_name:
-                        z1_control_page.update_strategy(strategy_name)
-                except Exception:
-                    pass
-
-            # direct_zapret2_orchestra: обновляем страницу управления Orchestra Z2
-            orchestra_z2_control_page = get_loaded_page(self.app, PageName.ZAPRET2_ORCHESTRA_CONTROL)
-            if orchestra_z2_control_page is not None:
-                try:
-                    orchestra_z2_control_page.update_status(is_running)
-                    if strategy_name and launch_method == "direct_zapret2_orchestra":
-                        orchestra_z2_control_page.update_strategy(strategy_name)
-                except Exception:
-                    pass
         except Exception as e:
             log(f"Ошибка в _update_all_pages: {e}", "DEBUG")
 

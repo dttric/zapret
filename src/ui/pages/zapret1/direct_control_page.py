@@ -11,6 +11,7 @@ import qtawesome as qta
 
 from ui.pages.base_page import BasePage
 from ui.compat_widgets import ActionButton, PrimaryActionButton, PulsingDot, SettingsCard, SettingsRow, set_tooltip
+from ui.main_window_state import AppUiState, MainWindowStateStore
 from ui.text_catalog import tr as tr_catalog
 
 try:
@@ -56,6 +57,8 @@ class Zapret1DirectControlPage(BasePage):
             title_key="page.z1_control.title",
             subtitle_key="page.z1_control.subtitle",
         )
+        self._ui_state_store = None
+        self._ui_state_unsubscribe = None
         self._build_ui()
 
     def showEvent(self, a0):
@@ -356,6 +359,31 @@ class Zapret1DirectControlPage(BasePage):
         self.start_btn.setEnabled(not loading)
         self.stop_winws_btn.setEnabled(not loading)
         self.stop_and_exit_btn.setEnabled(not loading)
+
+    def bind_ui_state_store(self, store: MainWindowStateStore) -> None:
+        if self._ui_state_store is store:
+            return
+
+        unsubscribe = getattr(self, "_ui_state_unsubscribe", None)
+        if callable(unsubscribe):
+            try:
+                unsubscribe()
+            except Exception:
+                pass
+
+        self._ui_state_store = store
+        self._ui_state_unsubscribe = store.subscribe(
+            self._on_ui_state_changed,
+            fields={"dpi_running", "dpi_busy", "dpi_busy_text", "current_strategy_summary", "preset_revision"},
+            emit_initial=True,
+        )
+
+    def _on_ui_state_changed(self, state: AppUiState, changed_fields: frozenset[str]) -> None:
+        if "preset_revision" in changed_fields:
+            self._refresh_preset_name()
+        self.set_loading(state.dpi_busy, state.dpi_busy_text)
+        self.update_status(state.dpi_running)
+        self.update_strategy(state.current_strategy_summary or "")
 
     def update_status(self, is_running: bool):
         if is_running:

@@ -1,7 +1,6 @@
 # main.py
 import sys, os
 import time as _startup_clock
-from ui.main_window_pages import get_loaded_page
 from ui.page_names import PageName
 
 
@@ -1853,6 +1852,11 @@ class LupiDPIApp(ZapretFluentWindow, MainWindowUI, ThemeSubscriptionManager):
     def set_garland_enabled(self, enabled: bool) -> None:
         """Enable/disable top garland overlay in FluentWindow shell."""
         try:
+            store = getattr(self, "ui_state_store", None)
+            if store is not None:
+                snapshot = store.snapshot()
+                store.set_holiday_overlays(bool(enabled), snapshot.snowflakes_enabled)
+
             effects = getattr(self, "_holiday_effects", None)
             if effects is None:
                 effects = HolidayEffectsManager(self)
@@ -1864,6 +1868,11 @@ class LupiDPIApp(ZapretFluentWindow, MainWindowUI, ThemeSubscriptionManager):
     def set_snowflakes_enabled(self, enabled: bool) -> None:
         """Enable/disable snow overlay in FluentWindow shell."""
         try:
+            store = getattr(self, "ui_state_store", None)
+            if store is not None:
+                snapshot = store.snapshot()
+                store.set_holiday_overlays(snapshot.garland_enabled, bool(enabled))
+
             effects = getattr(self, "_holiday_effects", None)
             if effects is None:
                 effects = HolidayEffectsManager(self)
@@ -1879,6 +1888,10 @@ class LupiDPIApp(ZapretFluentWindow, MainWindowUI, ThemeSubscriptionManager):
         Win10: применяет setWindowOpacity через apply_aero_effect.
         """
         try:
+            store = getattr(self, "ui_state_store", None)
+            if store is not None:
+                store.set_window_opacity_value(value)
+
             # Эффект применяется только для standard пресета
             from config.reg import get_background_preset
             if get_background_preset() != "standard":
@@ -1949,28 +1962,17 @@ class LupiDPIApp(ZapretFluentWindow, MainWindowUI, ThemeSubscriptionManager):
             
             # Гирлянда
             should_enable_garland = is_premium and garland_saved
-            if should_enable_garland:
-                self.set_garland_enabled(True)
-            appearance_page = get_loaded_page(self, PageName.APPEARANCE)
-            if appearance_page is not None:
-                appearance_page.set_garland_state(should_enable_garland)
+            self.set_garland_enabled(should_enable_garland)
             
             # Снежинки
             should_enable_snowflakes = is_premium and snowflakes_saved
-            if should_enable_snowflakes:
-                self.set_snowflakes_enabled(True)
-            appearance_page = get_loaded_page(self, PageName.APPEARANCE)
-            if appearance_page is not None:
-                appearance_page.set_snowflakes_state(should_enable_snowflakes)
+            self.set_snowflakes_enabled(should_enable_snowflakes)
 
             # Прозрачность окна (не зависит от премиума)
             from config.reg import get_window_opacity
             opacity_saved = get_window_opacity()
             log(f"🔮 Инициализация: opacity={opacity_saved}%", "DEBUG")
             self.set_window_opacity(opacity_saved)
-            appearance_page = get_loaded_page(self, PageName.APPEARANCE)
-            if appearance_page is not None:
-                appearance_page.set_opacity_value(opacity_saved)
 
             # Анимации интерфейса
             from config.reg import get_animations_enabled
