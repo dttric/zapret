@@ -5,7 +5,7 @@ import subprocess
 from datetime import datetime
 from pathlib import Path
 
-from PyQt6.QtCore import Qt, QTimer, pyqtSignal
+from PyQt6.QtCore import QTimer, pyqtSignal
 from PyQt6.QtGui import QAction
 from PyQt6.QtWidgets import QHBoxLayout, QVBoxLayout, QWidget, QFileDialog
 
@@ -134,12 +134,10 @@ class PresetSubpageBase(BasePage):
 
     def __init__(self, parent=None):
         super().__init__(self._default_title(), "", parent)
-        self.parent_app = parent
         self._preset_name = ""
         self._preset_file_name = ""
         self._preset_path: Path | None = None
         self._is_loading = False
-        self._loaded_once = False
         self._direct_facade = None
 
         self._save_timer = QTimer(self)
@@ -164,14 +162,6 @@ class PresetSubpageBase(BasePage):
         if method == "direct_zapret1":
             return "preset_zapret1"
         return None
-
-    def _get_hierarchy_store(self):
-        scope_key = self._preset_hierarchy_scope_key()
-        if not scope_key:
-            return None
-        from core.presets.library_hierarchy import PresetHierarchyStore
-
-        return PresetHierarchyStore(scope_key)
 
     def _get_direct_facade(self):
         method = self._direct_launch_method()
@@ -296,7 +286,6 @@ class PresetSubpageBase(BasePage):
                 self._preset_path = self._get_preset_path(self._preset_name)
         else:
             self._preset_path = self._get_preset_path(self._preset_name)
-        self._loaded_once = True
         self._load_file()
         self._refresh_header()
 
@@ -596,8 +585,6 @@ class PresetSubpageBase(BasePage):
                     raise ValueError("Не удалось сбросить orchestra preset")
                 self.set_preset_file_name(f"{preset_name}.txt")
                 self._notify_preset_saved(f"{preset_name}.txt")
-                if is_active:
-                    self._notify_preset_switched()
                 self._show_success(f"Пресет «{self._preset_name}» сброшен")
                 return
 
@@ -689,27 +676,6 @@ class PresetSubpageBase(BasePage):
             return (get_direct_flow_coordinator().get_selected_source_file_name(method) or "").strip()
         except Exception:
             return ""
-
-    def _refresh_selected_launch_profile(self) -> bool:
-        try:
-            if self._is_orchestra_preset_backend():
-                from preset_orchestra_zapret2 import PresetManager
-
-                active_name = self._current_selected_name()
-                if not active_name:
-                    return False
-                preset = PresetManager().load_preset(active_name)
-                if preset is None:
-                    return False
-                return bool(PresetManager().sync_preset_to_active_file(preset))
-
-            from core.services import get_direct_flow_coordinator
-
-            method = self._direct_launch_method()
-            get_direct_flow_coordinator().refresh_selected_launch_profile(method)
-            return True
-        except Exception:
-            return False
 
     def _activate_selected_preset(self) -> bool:
         try:

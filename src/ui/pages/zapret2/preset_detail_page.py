@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from ui.page_names import PageName
 from ui.pages.preset_subpage_base import PresetSubpageBase
 
 

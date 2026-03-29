@@ -42,17 +42,13 @@ from PyQt6.QtWidgets import (
     QSizePolicy,
     QApplication,
     QFrame,
-    QListWidget,
-    QListWidgetItem,
-    QDialog,
-    QDialogButtonBox,
     QComboBox,
 )
 from PyQt6.QtGui import QCursor
 import qtawesome as qta
 
 from ui.pages.base_page import BasePage
-from ui.compat_widgets import ActionButton, PrimaryActionButton, SettingsCard, LineEdit, set_tooltip
+from ui.compat_widgets import ActionButton, SettingsCard, LineEdit, set_tooltip
 from ui.text_catalog import tr as tr_catalog
 
 try:
@@ -1271,80 +1267,6 @@ class _RenamePresetDialog(MessageBoxBase):
         return True
 
 
-class _FolderEditDialog(MessageBoxBase):
-    def __init__(
-        self,
-        title: str,
-        *,
-        folder_name: str = "",
-        folder_choices: list[dict] | None = None,
-        selected_parent_id: str = ROOT_FOLDER_ID,
-        parent=None,
-        language: str = "ru",
-    ):
-        if parent and not parent.isWindow():
-            parent = parent.window()
-        super().__init__(parent)
-        self._ui_language = language
-        self._folder_choices = list(folder_choices or [])
-
-        self.titleLabel = SubtitleLabel(title, self.widget)
-        self.subtitleLabel = BodyLabel(
-            _tr_text(
-                "page.z2_user_presets.folder.subtitle",
-                self._ui_language,
-                "Укажите имя папки и при необходимости выберите родительскую папку.",
-            ),
-            self.widget,
-        )
-        self.subtitleLabel.setWordWrap(True)
-
-        self.nameEdit = LineEdit(self.widget)
-        self.nameEdit.setText(str(folder_name or ""))
-        self.nameEdit.setPlaceholderText(
-            _tr_text("page.z2_user_presets.folder.placeholder", self._ui_language, "Название папки")
-        )
-        self.nameEdit.setClearButtonEnabled(True)
-
-        self.parentCombo = QComboBox(self.widget)
-        for item in self._folder_choices:
-            indent = "    " * int(item.get("depth", 0) or 0)
-            self.parentCombo.addItem(f"{indent}{item.get('name', '')}", item.get("id", ROOT_FOLDER_ID))
-
-        selected_index = 0
-        for index in range(self.parentCombo.count()):
-            if str(self.parentCombo.itemData(index) or "") == str(selected_parent_id or ROOT_FOLDER_ID):
-                selected_index = index
-                break
-        self.parentCombo.setCurrentIndex(selected_index)
-
-        self.warningLabel = CaptionLabel("", self.widget)
-        self.warningLabel.hide()
-
-        self.viewLayout.addWidget(self.titleLabel)
-        self.viewLayout.addWidget(self.subtitleLabel)
-        self.viewLayout.addWidget(BodyLabel("Имя папки", self.widget))
-        self.viewLayout.addWidget(self.nameEdit)
-        self.viewLayout.addWidget(BodyLabel("Родительская папка", self.widget))
-        self.viewLayout.addWidget(self.parentCombo)
-        self.viewLayout.addWidget(self.warningLabel)
-
-        self.yesButton.setText("Сохранить")
-        self.cancelButton.setText("Отмена")
-        self.widget.setMinimumWidth(420)
-
-    def selected_parent_id(self) -> str:
-        return str(self.parentCombo.currentData() or ROOT_FOLDER_ID)
-
-    def validate(self) -> bool:
-        if not self.nameEdit.text().strip():
-            self.warningLabel.setText("Введите название папки.")
-            self.warningLabel.show()
-            return False
-        self.warningLabel.hide()
-        return True
-
-
 class _PresetFolderDialog(MessageBoxBase):
     def __init__(
         self,
@@ -1389,157 +1311,6 @@ class _PresetFolderDialog(MessageBoxBase):
 
     def selected_folder_id(self) -> str:
         return str(self.folderCombo.currentData() or ROOT_FOLDER_ID)
-
-
-class _ManageFoldersDialog(QDialog):
-    def __init__(self, page, store: PresetHierarchyStore, *, language: str = "ru"):
-        super().__init__(page.window() if page is not None else None)
-        self._page = page
-        self._store = store
-        self._ui_language = language
-        self.setWindowTitle("Папки пресетов")
-        self.resize(520, 460)
-
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(16, 16, 16, 16)
-        layout.setSpacing(12)
-
-        title = SubtitleLabel("Папки пресетов", self)
-        body = BodyLabel(
-            "Здесь можно создать свои папки, менять вложенность и порядок показа в списке.",
-            self,
-        )
-        body.setWordWrap(True)
-        layout.addWidget(title)
-        layout.addWidget(body)
-
-        self.listWidget = QListWidget(self)
-        layout.addWidget(self.listWidget, 1)
-
-        buttons_row = QHBoxLayout()
-        self.createButton = ActionButton("Новая папка", "fa5s.folder-plus")
-        self.editButton = ActionButton("Изменить", "fa5s.i-cursor")
-        self.deleteButton = ActionButton("Удалить", "fa5s.trash-alt")
-        self.upButton = ActionButton("Выше", "fa5s.arrow-up")
-        self.downButton = ActionButton("Ниже", "fa5s.arrow-down")
-        for button in (self.createButton, self.editButton, self.deleteButton, self.upButton, self.downButton):
-            buttons_row.addWidget(button)
-        buttons_row.addStretch(1)
-        layout.addLayout(buttons_row)
-
-        self.buttonBox = QDialogButtonBox(QDialogButtonBox.StandardButton.Close, parent=self)
-        self.buttonBox.rejected.connect(self.reject)
-        layout.addWidget(self.buttonBox)
-
-        self.createButton.clicked.connect(self._on_create)
-        self.editButton.clicked.connect(self._on_edit)
-        self.deleteButton.clicked.connect(self._on_delete)
-        self.upButton.clicked.connect(lambda: self._move_selected(-1))
-        self.downButton.clicked.connect(lambda: self._move_selected(1))
-        self.listWidget.currentItemChanged.connect(lambda *_args: self._sync_buttons())
-
-        self._reload()
-
-    def _reload(self):
-        self.listWidget.clear()
-        for item in self._store.get_folder_choices(include_root=True):
-            folder_id = str(item.get("id") or "")
-            meta = self._store.get_folder_meta(folder_id) or item
-            indent = "    " * int(meta.get("depth", 0) or 0)
-            text = f"{indent}{meta.get('name', '')}"
-            if bool(meta.get("builtin", False)):
-                text += " [системная]"
-            row = QListWidgetItem(text)
-            row.setData(Qt.ItemDataRole.UserRole, folder_id)
-            row.setData(Qt.ItemDataRole.UserRole + 1, bool(meta.get("builtin", False)))
-            self.listWidget.addItem(row)
-        if self.listWidget.count():
-            self.listWidget.setCurrentRow(0)
-        self._sync_buttons()
-
-    def _selected_folder_id(self) -> str:
-        item = self.listWidget.currentItem()
-        if item is None:
-            return ""
-        return str(item.data(Qt.ItemDataRole.UserRole) or "")
-
-    def _selected_builtin(self) -> bool:
-        item = self.listWidget.currentItem()
-        if item is None:
-            return False
-        return bool(item.data(Qt.ItemDataRole.UserRole + 1))
-
-    def _sync_buttons(self):
-        folder_id = self._selected_folder_id()
-        builtin = self._selected_builtin()
-        can_edit = bool(folder_id) and not builtin and folder_id != ROOT_FOLDER_ID
-        can_delete = can_edit
-        can_move = bool(folder_id)
-        self.editButton.setEnabled(can_edit)
-        self.deleteButton.setEnabled(can_delete)
-        self.upButton.setEnabled(can_move)
-        self.downButton.setEnabled(can_move)
-
-    def _on_create(self):
-        choices = self._store.get_folder_choices(include_root=True)
-        dlg = _FolderEditDialog(
-            "Новая папка",
-            folder_choices=choices,
-            selected_parent_id=ROOT_FOLDER_ID,
-            parent=self,
-            language=self._ui_language,
-        )
-        if not dlg.exec() or not dlg.validate():
-            return
-        self._store.create_folder(dlg.nameEdit.text().strip(), dlg.selected_parent_id())
-        self._reload()
-        if self._page is not None:
-            self._page._load_presets()
-
-    def _on_edit(self):
-        folder_id = self._selected_folder_id()
-        if not folder_id or self._selected_builtin() or folder_id == ROOT_FOLDER_ID:
-            return
-        meta = self._store.get_folder_meta(folder_id) or {}
-        choices = self._store.get_folder_choices(include_root=True, exclude_folder_id=folder_id)
-        selected_parent = meta.get("parent_id") or ROOT_FOLDER_ID
-        dlg = _FolderEditDialog(
-            "Изменить папку",
-            folder_name=str(meta.get("name") or ""),
-            folder_choices=choices,
-            selected_parent_id=str(selected_parent),
-            parent=self,
-            language=self._ui_language,
-        )
-        if not dlg.exec() or not dlg.validate():
-            return
-        self._store.update_folder(
-            folder_id,
-            name=dlg.nameEdit.text().strip(),
-            parent_id=dlg.selected_parent_id(),
-        )
-        self._reload()
-        if self._page is not None:
-            self._page._load_presets()
-
-    def _on_delete(self):
-        folder_id = self._selected_folder_id()
-        if not folder_id or self._selected_builtin() or folder_id == ROOT_FOLDER_ID:
-            return
-        self._store.delete_folder(folder_id)
-        self._reload()
-        if self._page is not None:
-            self._page._load_presets()
-
-    def _move_selected(self, direction: int):
-        folder_id = self._selected_folder_id()
-        if not folder_id:
-            return
-        moved = self._store.move_folder_up(folder_id) if direction < 0 else self._store.move_folder_down(folder_id)
-        if moved:
-            self._reload()
-            if self._page is not None:
-                self._page._load_presets()
 
 
 class _ResetAllPresetsDialog(MessageBoxBase):
@@ -2444,7 +2215,6 @@ class Zapret2UserPresetsPage(BasePage):
                 facade.create(name, from_current=from_current)
                 self._get_preset_store().notify_presets_changed()
             log(f"Создан пресет '{name}'", "INFO")
-            self._load_presets()
         except Exception as e:
             log(f"Ошибка создания пресета: {e}", "ERROR")
             InfoBar.error(
@@ -2493,7 +2263,6 @@ class Zapret2UserPresetsPage(BasePage):
                 if facade.is_selected_file_name(updated.file_name):
                     self._get_preset_store().notify_preset_switched(updated.file_name)
             log(f"Пресет '{display_name}' переименован в '{new_name}'", "INFO")
-            self._load_presets()
         except Exception as e:
             log(f"Ошибка переименования пресета: {e}", "ERROR")
             InfoBar.error(
@@ -2553,7 +2322,6 @@ class Zapret2UserPresetsPage(BasePage):
                         pass
                     log(f"Импортирован пресет '{name}'", "INFO")
                     self._show_import_result_infobar(name, name, f"{name}.txt")
-                    self._load_presets()
                 else:
                     InfoBar.warning(
                         title=self._tr("common.error.title", "Ошибка"),
@@ -2568,7 +2336,6 @@ class Zapret2UserPresetsPage(BasePage):
                 self._get_preset_store().notify_presets_changed()
                 log(f"Импортирован пресет '{actual_name}'", "INFO")
                 self._show_import_result_infobar(name, actual_name, actual_file_name)
-                self._load_presets()
 
         except Exception as e:
             log(f"Ошибка импорта пресета: {e}", "ERROR")
@@ -2596,7 +2363,8 @@ class Zapret2UserPresetsPage(BasePage):
                 if selected_file_name:
                     self._get_preset_store().notify_preset_switched(selected_file_name)
 
-            self._load_presets()
+            if self._is_orchestra_backend():
+                self._load_presets()
             if failed:
                 log(
                     f"Восстановление заводских пресетов завершено частично: "
@@ -3120,7 +2888,6 @@ class Zapret2UserPresetsPage(BasePage):
                     except Exception:
                         pass
                     log(f"Пресет '{name}' дублирован как '{new_name}'", "INFO")
-                    self._load_presets()
                 else:
                     InfoBar.warning(
                         title=self._tr("common.error.title", "Ошибка"),
@@ -3132,7 +2899,6 @@ class Zapret2UserPresetsPage(BasePage):
                 facade.duplicate_by_file_name(name, new_name)
                 self._get_preset_store().notify_presets_changed()
                 log(f"Пресет '{display_name}' дублирован как '{new_name}'", "INFO")
-                self._load_presets()
 
         except Exception as e:
             log(f"Ошибка дублирования пресета: {e}", "ERROR")
@@ -3187,7 +2953,6 @@ class Zapret2UserPresetsPage(BasePage):
                     self._get_preset_store().notify_preset_switched(name)
 
             log(f"Сброшен пресет '{display_name}' к шаблону", "INFO")
-            self._load_presets()
 
         except Exception as e:
             log(f"Ошибка сброса пресета: {e}", "ERROR")
@@ -3263,7 +3028,6 @@ class Zapret2UserPresetsPage(BasePage):
                         mark_preset_deleted(template_origin)
                 except Exception:
                     pass
-                self._load_presets()
             else:
                 InfoBar.warning(
                     title=self._tr("common.error.title", "Ошибка"),
@@ -3359,7 +3123,6 @@ class Zapret2UserPresetsPage(BasePage):
                 if selected_file_name:
                     self._get_preset_store().notify_preset_switched(selected_file_name)
             log("Восстановлены удалённые пресеты", "INFO")
-            self._load_presets()
         except Exception as e:
             log(f"Ошибка восстановления удалённых пресетов: {e}", "ERROR")
             InfoBar.error(

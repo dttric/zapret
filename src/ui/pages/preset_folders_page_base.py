@@ -21,9 +21,7 @@ class PresetFoldersPageBase(BasePage):
 
     def __init__(self, parent=None):
         super().__init__(self._default_title(), "", parent)
-        self.parent_app = parent
         self._breadcrumb = None
-        self._back_btn = None
         self._store = None
         self._selected_folder_id = ""
         self._build_ui()
@@ -167,6 +165,13 @@ class PresetFoldersPageBase(BasePage):
         self._reload_parent_combo()
         self._sync_buttons()
 
+    def _finish_folder_mutation(self, info_text: str, *, selected_folder_id: str | None = None) -> None:
+        if selected_folder_id is not None:
+            self._selected_folder_id = selected_folder_id
+        self.infoLabel.setText(info_text)
+        self.folders_changed.emit()
+        self._reload()
+
     def _reload_parent_combo(self, *, exclude_folder_id: str | None = None):
         choices = self._get_store().get_folder_choices(include_root=True, exclude_folder_id=exclude_folder_id)
         self.parentCombo.clear()
@@ -236,10 +241,9 @@ class PresetFoldersPageBase(BasePage):
                 )
             else:
                 created = store.create_folder(name, None if parent_id == ROOT_FOLDER_ID else parent_id)
-                self._selected_folder_id = created["id"]
-            self.infoLabel.setText("Папка сохранена.")
-            self.folders_changed.emit()
-            self._reload()
+                self._finish_folder_mutation("Папка сохранена.", selected_folder_id=str(created["id"] or ""))
+                return
+            self._finish_folder_mutation("Папка сохранена.")
         except Exception as e:
             self.infoLabel.setText(f"Ошибка сохранения папки: {e}")
 
@@ -253,10 +257,7 @@ class PresetFoldersPageBase(BasePage):
             return
         try:
             self._get_store().delete_folder(folder_id)
-            self._selected_folder_id = ""
-            self.infoLabel.setText("Папка удалена.")
-            self.folders_changed.emit()
-            self._reload()
+            self._finish_folder_mutation("Папка удалена.", selected_folder_id="")
         except Exception as e:
             self.infoLabel.setText(f"Ошибка удаления папки: {e}")
 
@@ -266,6 +267,4 @@ class PresetFoldersPageBase(BasePage):
             return
         moved = self._get_store().move_folder_up(folder_id) if direction < 0 else self._get_store().move_folder_down(folder_id)
         if moved:
-            self.infoLabel.setText("Порядок папок изменён.")
-            self.folders_changed.emit()
-            self._reload()
+            self._finish_folder_mutation("Порядок папок изменён.")
