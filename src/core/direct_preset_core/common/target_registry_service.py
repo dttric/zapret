@@ -53,14 +53,20 @@ class TargetRegistryService:
         return "TCP"
 
     def get_metadata(self, target_key: str) -> TargetMetadata:
-        base_key = self.base_key_from_target_key(target_key)
-        protocol = self.protocol_from_target_key(target_key)
-        raw = self._load_categories().get(base_key) or {}
+        normalized_target_key = str(target_key or "").strip().lower()
+        base_key = self.base_key_from_target_key(normalized_target_key)
+        protocol = self.protocol_from_target_key(normalized_target_key)
+        categories = self._load_categories()
+
+        # Prefer exact protocol-specific entry (e.g. amazon_tcp, discord_udp).
+        # Fall back to the base key only when the catalog defines a shared entry
+        # like [youtube] for multiple protocol variants.
+        raw = categories.get(normalized_target_key) or categories.get(base_key) or {}
         display_name = str(raw.get("full_name") or _humanize_base_key(base_key)).strip() or target_key
         ports = str(raw.get("ports") or "").strip()
         strategy_type = str(raw.get("strategy_type") or "").strip().lower() or ("udp" if protocol == "UDP" else "tcp")
         return TargetMetadata(
-            target_key=target_key,
+            target_key=normalized_target_key,
             base_key=base_key,
             display_name=display_name,
             protocol=str(raw.get("protocol") or protocol).strip() or protocol,

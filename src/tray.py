@@ -6,6 +6,8 @@ import sys
 from PyQt6.QtWidgets import QMenu, QApplication, QStyle, QSystemTrayIcon
 from PyQt6.QtGui     import QAction, QIcon
 from PyQt6.QtCore    import QEvent, Qt, QTimer
+from ui.main_window_pages import get_loaded_page
+from ui.page_names import PageName
 
 try:
     import qtawesome as qta
@@ -123,8 +125,9 @@ class SystemTrayManager:
             try:
                 if hasattr(self.parent, "set_window_opacity"):
                     self.parent.set_window_opacity(value)
-                if hasattr(self.parent, "appearance_page") and self.parent.appearance_page:
-                    self.parent.appearance_page.set_opacity_value(value)
+                appearance_page = get_loaded_page(self.parent, PageName.APPEARANCE)
+                if appearance_page is not None:
+                    appearance_page.set_opacity_value(value)
             except Exception:
                 pass
 

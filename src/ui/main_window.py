@@ -87,6 +87,7 @@ from ui.main_window_pages import (
     ensure_page,
     ensure_page_in_stacked_widget,
     get_eager_page_names,
+    get_loaded_page,
     get_page_route_key,
     resolve_page_name,
 )
@@ -433,9 +434,15 @@ class MainWindowUI:
         # Register pages in navigation sidebar
         init_navigation(self)
 
+        # После перехода на lazy pages уже созданные eager-страницы тоже должны
+        # получить те же подключения сигналов, что и ленивые страницы.
+        self._page_signal_bootstrap_complete = True
+        for page_name, page in list(self.pages.items()):
+            connect_lazy_page_signals(self, page_name, page)
+            ensure_page_in_stacked_widget(self, page)
+
         # Wire up signals
         connect_main_window_page_signals(self)
-        self._page_signal_bootstrap_complete = True
 
         # Backward-compat attrs
         setup_main_window_compatibility_attrs(self)
@@ -603,6 +610,12 @@ class MainWindowUI:
 
     def _ensure_page(self, name: PageName) -> QWidget | None:
         return ensure_page(self, name)
+
+    def _get_loaded_page(self, name: PageName) -> QWidget | None:
+        return get_loaded_page(self, name)
+
+    def get_loaded_page(self, name: PageName) -> QWidget | None:
+        return get_loaded_page(self, name)
 
     def get_page(self, name: PageName) -> QWidget:
         return self._ensure_page(name)
@@ -878,8 +891,9 @@ class MainWindowUI:
     def _on_subscription_updated(self, is_premium: bool, days_remaining: int):
         on_subscription_updated(self, is_premium, days_remaining)
 
-        if hasattr(self, 'appearance_page') and self.appearance_page:
-            self.appearance_page.set_premium_status(is_premium)
+        appearance_page = self.get_loaded_page(PageName.APPEARANCE)
+        if appearance_page is not None:
+            appearance_page.set_premium_status(is_premium)
 
     def _on_strategy_selected_from_page(self, strategy_id: str, strategy_name: str):
         from log import log

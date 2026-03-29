@@ -1,6 +1,8 @@
 # main.py
 import sys, os
 import time as _startup_clock
+from ui.main_window_pages import get_loaded_page
+from ui.page_names import PageName
 
 
 _STARTUP_T0 = _startup_clock.perf_counter()
@@ -884,115 +886,91 @@ class LupiDPIApp(ZapretFluentWindow, MainWindowUI, ThemeSubscriptionManager):
             if hasattr(self, 'update_current_strategy_display'):
                 self.update_current_strategy_display(strategy_name)
 
-            # ✅ ИСПРАВЛЕННАЯ ЛОГИКА для обработки Direct режимов
+            # Direct launch methods are preset-based only.
             if launch_method in ("direct_zapret2", "direct_zapret2_orchestra", "direct_zapret1"):
-                if strategy_id == "DIRECT_MODE" or strategy_id == "combined":
-                    
-                    # ✅ ДЛЯ direct_zapret2 - используем выбранный source-пресет
-                    if launch_method == "direct_zapret2":
-                        try:
-                            from core.services import get_direct_flow_coordinator
+                if launch_method == "direct_zapret2":
+                    try:
+                        from core.services import get_direct_flow_coordinator
 
-                            coordinator = get_direct_flow_coordinator()
-                            profile = coordinator.ensure_launch_profile("direct_zapret2", require_filters=True)
-                            combined_data = profile.to_selected_mode()
-                        except Exception as e:
-                            log(f"Не удалось подготовить запуск direct_zapret2: {e}", "ERROR")
-                            self.set_status(str(e))
-                            return
+                        coordinator = get_direct_flow_coordinator()
+                        selected_mode = coordinator.ensure_launch_profile(
+                            "direct_zapret2",
+                            require_filters=True,
+                        ).to_selected_mode()
+                    except Exception as e:
+                        log(f"Не удалось подготовить запуск direct_zapret2: {e}", "ERROR")
+                        self.set_status(str(e))
+                        return
 
-                        log(f"Запуск direct_zapret2 из выбранного source-пресета: {profile.launch_config_path}", "INFO")
-                        self.dpi_controller.start_dpi_async(selected_mode=combined_data, launch_method=launch_method)
-                    
-                    # ✅ ДЛЯ direct_zapret1 - используем выбранный source-пресет
-                    elif launch_method == "direct_zapret1":
-                        try:
-                            from core.services import get_direct_flow_coordinator
+                    log(
+                        f"Запуск direct_zapret2 из выбранного source-пресета: {selected_mode.get('preset_path', '')}",
+                        "INFO",
+                    )
+                    self.dpi_controller.start_dpi_async(selected_mode=selected_mode, launch_method=launch_method)
 
-                            coordinator = get_direct_flow_coordinator()
-                            profile = coordinator.ensure_launch_profile("direct_zapret1", require_filters=True)
-                            combined_data = profile.to_selected_mode()
-                        except Exception as e:
-                            log(f"Не удалось подготовить запуск direct_zapret1: {e}", "ERROR")
-                            self.set_status(str(e))
-                            return
+                elif launch_method == "direct_zapret1":
+                    try:
+                        from core.services import get_direct_flow_coordinator
 
-                        log(f"Запуск Zapret1 из выбранного source-пресета: {profile.launch_config_path}", "INFO")
-                        self.dpi_controller.start_dpi_async(selected_mode=combined_data, launch_method=launch_method)
+                        coordinator = get_direct_flow_coordinator()
+                        selected_mode = coordinator.ensure_launch_profile(
+                            "direct_zapret1",
+                            require_filters=True,
+                        ).to_selected_mode()
+                    except Exception as e:
+                        log(f"Не удалось подготовить запуск direct_zapret1: {e}", "ERROR")
+                        self.set_status(str(e))
+                        return
 
-                    # ✅ ДЛЯ direct_zapret2_orchestra - используем preset-zapret2-orchestra.txt
-                    elif launch_method == "direct_zapret2_orchestra":
-                        from preset_orchestra_zapret2 import (
-                            get_active_preset_path,
-                            get_active_preset_name,
-                            ensure_default_preset_exists,
-                        )
+                    log(
+                        f"Запуск Zapret1 из выбранного source-пресета: {selected_mode.get('preset_path', '')}",
+                        "INFO",
+                    )
+                    self.dpi_controller.start_dpi_async(selected_mode=selected_mode, launch_method=launch_method)
 
-                        if not ensure_default_preset_exists():
-                            log(
-                                "Не удалось создать preset-zapret2-orchestra.txt: отсутствует шаблон Default",
-                                "ERROR",
-                            )
-                            self.set_status("Ошибка: отсутствует шаблон Default для оркестра")
-                            return
-
-                        preset_path = get_active_preset_path()
-                        preset_name = get_active_preset_name() or "Default"
-
-                        if not preset_path.exists():
-                            log(f"preset-zapret2-orchestra.txt не найден: {preset_path}", "ERROR")
-                            self.set_status("Выберите стратегию в разделе Оркестратор Z2")
-                            return
-
-                        try:
-                            content = preset_path.read_text(encoding='utf-8').strip()
-                            has_filters = any(f in content for f in ['--wf-tcp-out', '--wf-udp-out', '--wf-raw-part'])
-                            if not has_filters:
-                                log("Orchestra preset файл не содержит активных фильтров", "WARNING")
-                                self.set_status("Выберите хотя бы одну категорию для запуска")
-                                return
-                        except Exception as e:
-                            log(f"Ошибка чтения orchestra preset файла: {e}", "ERROR")
-                            self.set_status(f"Ошибка чтения preset: {e}")
-                            return
-
-                        combined_data = {
-                            'is_preset_file': True,
-                            'name': f"Пресет оркестра: {preset_name}",
-                            'preset_path': str(preset_path)
-                        }
-
-                        log(f"Запуск direct_zapret2_orchestra из preset файла: {preset_path}", "INFO")
-                        self.dpi_controller.start_dpi_async(selected_mode=combined_data, launch_method=launch_method)
-
-                    # ✅ ДЛЯ ДРУГИХ РЕЖИМОВ - используем combine_strategies
-                    else:
-                        from launcher_common import combine_strategies
-                        from legacy_registry_launch.selection_store import get_direct_strategy_selections
-                        from legacy_registry_launch.strategies_registry import get_default_selections
-
-                        try:
-                            category_selections = get_direct_strategy_selections()
-                        except:
-                            category_selections = get_default_selections()
-
-                        combined_strategy = combine_strategies(**category_selections)
-                        combined_args = combined_strategy['args']
-
-                        combined_data = {
-                            'id': strategy_id,
-                            'name': strategy_name,
-                            'is_combined': True,
-                            'args': combined_args,
-                            'selections': category_selections
-                        }
-
-                        log(f"Комбинированная стратегия: {len(combined_args)} символов", "DEBUG")
-
-                        self.dpi_controller.start_dpi_async(selected_mode=combined_data, launch_method=launch_method)
-                        
                 else:
-                    self.dpi_controller.start_dpi_async(selected_mode=(strategy_id, strategy_name), launch_method=launch_method)
+                    from preset_orchestra_zapret2 import (
+                        get_active_preset_path,
+                        get_active_preset_name,
+                        ensure_default_preset_exists,
+                    )
+
+                    if not ensure_default_preset_exists():
+                        log(
+                            "Не удалось создать preset-zapret2-orchestra.txt: отсутствует шаблон Default",
+                            "ERROR",
+                        )
+                        self.set_status("Ошибка: отсутствует шаблон Default для оркестра")
+                        return
+
+                    preset_path = get_active_preset_path()
+                    preset_name = get_active_preset_name() or "Default"
+
+                    if not preset_path.exists():
+                        log(f"preset-zapret2-orchestra.txt не найден: {preset_path}", "ERROR")
+                        self.set_status("Выберите стратегию в разделе Оркестратор Z2")
+                        return
+
+                    try:
+                        content = preset_path.read_text(encoding='utf-8').strip()
+                        has_filters = any(f in content for f in ['--wf-tcp-out', '--wf-udp-out', '--wf-raw-part'])
+                        if not has_filters:
+                            log("Orchestra preset файл не содержит активных фильтров", "WARNING")
+                            self.set_status("Выберите хотя бы одну категорию для запуска")
+                            return
+                    except Exception as e:
+                        log(f"Ошибка чтения orchestra preset файла: {e}", "ERROR")
+                        self.set_status(f"Ошибка чтения preset: {e}")
+                        return
+
+                    selected_mode = {
+                        'is_preset_file': True,
+                        'name': f"Пресет оркестра: {preset_name}",
+                        'preset_path': str(preset_path),
+                    }
+
+                    log(f"Запуск direct_zapret2_orchestra из preset файла: {preset_path}", "INFO")
+                    self.dpi_controller.start_dpi_async(selected_mode=selected_mode, launch_method=launch_method)
             else:
                 # BAT режим
                 try:
@@ -1965,23 +1943,26 @@ class LupiDPIApp(ZapretFluentWindow, MainWindowUI, ThemeSubscriptionManager):
             should_enable_garland = is_premium and garland_saved
             if should_enable_garland:
                 self.set_garland_enabled(True)
-            if hasattr(self, 'appearance_page'):
-                self.appearance_page.set_garland_state(should_enable_garland)
+            appearance_page = get_loaded_page(self, PageName.APPEARANCE)
+            if appearance_page is not None:
+                appearance_page.set_garland_state(should_enable_garland)
             
             # Снежинки
             should_enable_snowflakes = is_premium and snowflakes_saved
             if should_enable_snowflakes:
                 self.set_snowflakes_enabled(True)
-            if hasattr(self, 'appearance_page'):
-                self.appearance_page.set_snowflakes_state(should_enable_snowflakes)
+            appearance_page = get_loaded_page(self, PageName.APPEARANCE)
+            if appearance_page is not None:
+                appearance_page.set_snowflakes_state(should_enable_snowflakes)
 
             # Прозрачность окна (не зависит от премиума)
             from config.reg import get_window_opacity
             opacity_saved = get_window_opacity()
             log(f"🔮 Инициализация: opacity={opacity_saved}%", "DEBUG")
             self.set_window_opacity(opacity_saved)
-            if hasattr(self, 'appearance_page'):
-                self.appearance_page.set_opacity_value(opacity_saved)
+            appearance_page = get_loaded_page(self, PageName.APPEARANCE)
+            if appearance_page is not None:
+                appearance_page.set_opacity_value(opacity_saved)
 
             # Анимации интерфейса
             from config.reg import get_animations_enabled

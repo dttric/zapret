@@ -54,8 +54,10 @@ def _candidate_indexjson_dirs() -> list[Path]:
 
     try:
         here = Path(__file__).resolve()
-        privacy_dir = here.parents[4]
-        out.append(privacy_dir / "zapret" / "json")
+        repo_root = here.parents[5]
+        out.append(repo_root / "private_zapretgui" / "dist" / "json")
+        out.append(repo_root / "private_zapretgui" / "stage" / "installer_root" / "json")
+        out.append(repo_root / "json")
     except Exception:
         pass
 

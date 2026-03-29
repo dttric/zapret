@@ -6,6 +6,8 @@ from PyQt6.QtCore import QThread, QObject, pyqtSignal, QMetaObject, Qt, Q_ARG, Q
 from pathlib import Path
 from strategy_menu import get_strategy_launch_method
 from log import log
+from ui.main_window_pages import get_loaded_page
+from ui.page_names import PageName
 from dpi.process_health_check import (
     diagnose_startup_error,
     check_conflicting_processes,
@@ -176,17 +178,8 @@ class DPIStartWorker(QObject):
                             preset_path = (mode_param.get("preset_path") or "").strip()
                             if not preset_path:
                                 fatal_reason = "❌ Ошибка: не указан путь к preset файлу"
-                        elif mode_param.get("is_combined"):
-                            args_str = (mode_param.get("args") or "").strip()
-                            if not args_str:
-                                fatal_reason = "⚠️ Выберите хотя бы одну категорию для запуска"
-                            else:
-                                if self.launch_method == "direct_zapret1":
-                                    has_filters = any(f in args_str for f in ["--wf-tcp=", "--wf-udp="])
-                                else:
-                                    has_filters = any(f in args_str for f in ["--wf-tcp-out", "--wf-udp-out", "--wf-raw-part"])
-                                if not has_filters:
-                                    fatal_reason = "⚠️ Выберите хотя бы одну категорию для запуска"
+                        else:
+                            fatal_reason = "❌ Для прямого запуска нужен prepared preset файл"
                 except Exception:
                     fatal_reason = ""
 
@@ -203,7 +196,7 @@ class DPIStartWorker(QObject):
             self.finished.emit(False, diagnosis.split('\n')[0])  # Первая строка как краткое сообщение
 
     def _start_direct(self):
-        """Запуск через прямой метод (StrategyRunner)"""
+        """Запуск через preset-based direct path (StrategyRunner + prepared preset)."""
         try:
             from launcher_common import get_strategy_runner
 
@@ -266,72 +259,13 @@ class DPIStartWorker(QObject):
                         self.progress.emit("❌ Не удалось запустить пресет. Проверьте логи")
                     return False
 
-            # Обработка комбинированных стратегий
-            elif isinstance(mode_param, dict) and mode_param.get('is_combined'):
-                if self.launch_method == "direct_zapret2_orchestra":
-                    log("Комбинированный запуск для direct_zapret2_orchestra отключён: используйте preset файл", "❌ ERROR")
-                    self._last_error_message = "Режим orchestra запускается только через preset файл"
-                    self.progress.emit("❌ Режим orchestra запускается только через preset файл")
-                    return False
-
-                strategy_name = mode_param.get('name', 'Комбинированная стратегия')
-                args_str = mode_param.get('args', '')
-                
-                log(f"Запуск комбинированной стратегии: {strategy_name}", "INFO")
-                
-                if not args_str:
-                    log("Отсутствуют аргументы для комбинированной стратегии", "❌ ERROR")
-                    self._last_error_message = "Не заданы аргументы стратегии"
-                    self.progress.emit("❌ Ошибка: не заданы аргументы стратегии")
-                    return False
-                
-                # ✅ Проверка наличия WinDivert фильтров (без них winws не запустится)
-                if self.launch_method == "direct_zapret1":
-                    # Zapret 1 (winws.exe) использует синтаксис --wf-tcp= / --wf-udp=
-                    has_filters = any(f in args_str for f in ['--wf-tcp=', '--wf-udp='])
-                else:
-                    # Zapret 2 (winws2.exe) использует --wf-tcp-out= / --wf-udp-out= / --wf-raw-part=
-                    has_filters = any(f in args_str for f in ['--wf-tcp-out', '--wf-udp-out', '--wf-raw-part'])
-                if not has_filters:
-                    if self.launch_method == "direct_zapret1":
-                        log("Нет активных WinDivert фильтров (--wf-tcp=, --wf-udp=)", "❌ ERROR")
-                    else:
-                        log("Нет активных WinDivert фильтров (--wf-tcp-out, --wf-udp-out, --wf-raw-part)", "❌ ERROR")
-                    self.progress.emit("⚠️ Выберите хотя бы одну категорию для запуска")
-                    self._last_error_message = "Выберите хотя бы одну категорию для запуска"
-                    return False
-                
-                # Парсим аргументы (posix=False для Windows чтобы сохранить бэкслеши в путях)
-                import shlex
-                try:
-                    custom_args = shlex.split(args_str, posix=False)
-                    log(f"Аргументы комбинированной стратегии ({len(custom_args)} шт.)", "DEBUG")
-                    
-                    # Запускаем стратегию напрямую через runner
-                    # Runner теперь автоматически делает retry при ошибке WinDivert
-                    success = runner.start_strategy_custom(custom_args, strategy_name)
-                    
-                    if success:
-                        log("Комбинированная стратегия успешно запущена", "✅ SUCCESS")
-                        return True
-                    else:
-                        # Даём понятную подсказку пользователю
-                        log("Не удалось запустить комбинированную стратегию", "❌ ERROR")
-                        self._last_error_message = "Не удалось запустить комбинированную стратегию (см. логи)"
-                        self.progress.emit("❌ Ошибка запуска. Попробуйте перезапустить программу или ПК")
-                        return False
-                        
-                except Exception as parse_error:
-                    log(f"Ошибка парсинга аргументов: {parse_error}", "❌ ERROR")
-                    self._last_error_message = "Ошибка в параметрах стратегии"
-                    self.progress.emit(f"❌ Ошибка в параметрах стратегии")
-                    return False
-            
-            # Для Direct режима поддерживаются только комбинированные стратегии
             else:
-                log(f"Direct режим поддерживает только комбинированные стратегии, получен: {type(mode_param)}", "❌ ERROR")
-                self._last_error_message = "Неподдерживаемый тип стратегии"
-                self.progress.emit("❌ Неподдерживаемый тип стратегии")
+                log(
+                    f"Legacy combined/custom launch больше не поддерживается для {self.launch_method}: {type(mode_param)}",
+                    "❌ ERROR",
+                )
+                self._last_error_message = "Для прямого запуска используйте prepared preset файл"
+                self.progress.emit("❌ Для прямого запуска используйте prepared preset файл")
                 return False
                 
         except Exception as e:
@@ -874,18 +808,7 @@ class DPIController:
         # ✅ ОБРАБОТКА всех типов стратегий (остальной код без изменений)
         mode_name = "Неизвестная стратегия"
         
-        if isinstance(selected_mode, dict) and selected_mode.get('is_combined'):
-            # Комбинированная стратегия
-            mode_name = selected_mode.get('name', 'Комбинированная стратегия')
-            log(f"Обработка комбинированной стратегии: {mode_name}", "DEBUG")
-
-            # Сохраняем выборы в реестр для будущего использования
-            if 'selections' in selected_mode and launch_method != "direct_zapret2_orchestra":
-                from legacy_registry_launch.selection_store import set_direct_strategy_selections
-                selections = selected_mode['selections']
-                set_direct_strategy_selections(selections)
-            
-        elif isinstance(selected_mode, tuple) and len(selected_mode) == 2:
+        if isinstance(selected_mode, tuple) and len(selected_mode) == 2:
             # Встроенная стратегия (ID, название)
             strategy_id, strategy_name = selected_mode
             mode_name = strategy_name
@@ -919,18 +842,17 @@ class DPIController:
             self.app.main_window.strategies_page.show_loading()
         
         # ✅ Показываем индикатор загрузки на страницах
-        if hasattr(self.app, 'control_page'):
-            self.app.control_page.set_loading(True, "Запуск Zapret...")
-        if hasattr(self.app, 'zapret2_direct_control_page'):
-            try:
-                self.app.zapret2_direct_control_page.set_loading(True, "Запуск Zapret...")
-            except Exception:
-                pass
-        if hasattr(self.app, 'orchestra_zapret2_control_page'):
-            try:
-                self.app.orchestra_zapret2_control_page.set_loading(True, "Запуск Zapret...")
-            except Exception:
-                pass
+        for page_name in (
+            PageName.CONTROL,
+            PageName.ZAPRET2_DIRECT_CONTROL,
+            PageName.ZAPRET2_ORCHESTRA_CONTROL,
+        ):
+            page = get_loaded_page(self.app, page_name)
+            if page is not None:
+                try:
+                    page.set_loading(True, "Запуск Zapret...")
+                except Exception:
+                    pass
         if hasattr(self.app, 'home_page'):
             self.app.home_page.set_loading(True, "Запуск Zapret...")
         
@@ -1001,18 +923,17 @@ class DPIController:
             self.app.main_window.strategies_page.show_loading()
         
         # ✅ Показываем индикатор загрузки на страницах
-        if hasattr(self.app, 'control_page'):
-            self.app.control_page.set_loading(True, "Остановка Zapret...")
-        if hasattr(self.app, 'zapret2_direct_control_page'):
-            try:
-                self.app.zapret2_direct_control_page.set_loading(True, "Остановка Zapret...")
-            except Exception:
-                pass
-        if hasattr(self.app, 'orchestra_zapret2_control_page'):
-            try:
-                self.app.orchestra_zapret2_control_page.set_loading(True, "Остановка Zapret...")
-            except Exception:
-                pass
+        for page_name in (
+            PageName.CONTROL,
+            PageName.ZAPRET2_DIRECT_CONTROL,
+            PageName.ZAPRET2_ORCHESTRA_CONTROL,
+        ):
+            page = get_loaded_page(self.app, page_name)
+            if page is not None:
+                try:
+                    page.set_loading(True, "Остановка Zapret...")
+                except Exception:
+                    pass
         if hasattr(self.app, 'home_page'):
             self.app.home_page.set_loading(True, "Остановка Zapret...")
         
@@ -1086,18 +1007,17 @@ class DPIController:
                 self.app.stop_btn.setEnabled(True)
             
             # ✅ Скрываем индикатор загрузки на страницах
-            if hasattr(self.app, 'control_page'):
-                self.app.control_page.set_loading(False)
-            if hasattr(self.app, 'zapret2_direct_control_page'):
-                try:
-                    self.app.zapret2_direct_control_page.set_loading(False)
-                except Exception:
-                    pass
-            if hasattr(self.app, 'orchestra_zapret2_control_page'):
-                try:
-                    self.app.orchestra_zapret2_control_page.set_loading(False)
-                except Exception:
-                    pass
+            for page_name in (
+                PageName.CONTROL,
+                PageName.ZAPRET2_DIRECT_CONTROL,
+                PageName.ZAPRET2_ORCHESTRA_CONTROL,
+            ):
+                page = get_loaded_page(self.app, page_name)
+                if page is not None:
+                    try:
+                        page.set_loading(False)
+                    except Exception:
+                        pass
             if hasattr(self.app, 'home_page'):
                 self.app.home_page.set_loading(False)
 
@@ -1213,18 +1133,17 @@ class DPIController:
                 self.app.stop_btn.setEnabled(True)
             
             # ✅ Скрываем индикатор загрузки на страницах
-            if hasattr(self.app, 'control_page'):
-                self.app.control_page.set_loading(False)
-            if hasattr(self.app, 'zapret2_direct_control_page'):
-                try:
-                    self.app.zapret2_direct_control_page.set_loading(False)
-                except Exception:
-                    pass
-            if hasattr(self.app, 'orchestra_zapret2_control_page'):
-                try:
-                    self.app.orchestra_zapret2_control_page.set_loading(False)
-                except Exception:
-                    pass
+            for page_name in (
+                PageName.CONTROL,
+                PageName.ZAPRET2_DIRECT_CONTROL,
+                PageName.ZAPRET2_ORCHESTRA_CONTROL,
+            ):
+                page = get_loaded_page(self.app, page_name)
+                if page is not None:
+                    try:
+                        page.set_loading(False)
+                    except Exception:
+                        pass
             if hasattr(self.app, 'home_page'):
                 self.app.home_page.set_loading(False)
 

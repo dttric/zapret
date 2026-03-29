@@ -504,8 +504,6 @@ def collect_direct_strategy_args(app_instance) -> tuple[List[str], str, str]:
     """
     try:
         from strategy_menu import get_strategy_launch_method
-        from legacy_registry_launch.selection_store import get_direct_strategy_selections
-        from launcher_common import combine_strategies
         from config.config import get_current_winws_exe
 
         # Используем единую функцию определения exe
@@ -559,10 +557,11 @@ def collect_direct_strategy_args(app_instance) -> tuple[List[str], str, str]:
             log(f"DirectZ1 autostart: используем выбранный source-пресет как @config: {profile.launch_config_path}", "INFO")
             return args_v1, profile.display_name, winws_exe
 
-        # Получаем выборы стратегий
-        selections = get_direct_strategy_selections()
+        from legacy_registry_launch.selection_store import get_direct_strategy_selections
+        from launcher_common import combine_strategies
 
-        # Комбинируем стратегии
+        # Out-of-scope legacy/orchestra path still uses category selections.
+        selections = get_direct_strategy_selections()
         combined = combine_strategies(**selections)
 
         # Парсим аргументы (posix=False для Windows чтобы сохранить бэкслеши в путях)

@@ -4,6 +4,8 @@ import threading
 
 from PyQt6.QtCore import QTimer, QThread, QObject, pyqtSignal
 from log import log
+from ui.main_window_pages import get_loaded_page
+from ui.page_names import PageName
 
 
 class InitializationManager:
@@ -326,22 +328,13 @@ class InitializationManager:
         try:
             self.app.start_clicked.connect(self._on_start_clicked)
             self.app.stop_clicked.connect(lambda: self.app.dpi_controller.stop_dpi_async())
-            self.app.open_folder_btn.clicked.connect(self.app.open_folder)
-            self.app.test_connection_btn.clicked.connect(self.app.open_connection_test)
-            self.app.server_status_btn.clicked.connect(self.app.show_servers_page)
+            if getattr(self.app, "open_folder_btn", None) is not None:
+                self.app.open_folder_btn.clicked.connect(self.app.open_folder)
+            if getattr(self.app, "test_connection_btn", None) is not None:
+                self.app.test_connection_btn.clicked.connect(self.app.open_connection_test)
+            if getattr(self.app, "server_status_btn", None) is not None:
+                self.app.server_status_btn.clicked.connect(self.app.show_servers_page)
             
-            # Сигнал гирлянды (новогоднее оформление)
-            if hasattr(self.app, 'appearance_page') and hasattr(self.app.appearance_page, 'garland_changed'):
-                self.app.appearance_page.garland_changed.connect(self.app.set_garland_enabled)
-            
-            # Сигнал снежинок
-            if hasattr(self.app, 'appearance_page') and hasattr(self.app.appearance_page, 'snowflakes_changed'):
-                self.app.appearance_page.snowflakes_changed.connect(self.app.set_snowflakes_enabled)
-
-            # Сигнал прозрачности окна
-            if hasattr(self.app, 'appearance_page') and hasattr(self.app.appearance_page, 'opacity_changed'):
-                self.app.appearance_page.opacity_changed.connect(self.app.set_window_opacity)
-
             self.init_tasks_completed.add('signals')
 
             # Фиксируем метрику "interactive": базовые сигналы UI уже подключены.
@@ -514,8 +507,9 @@ class InitializationManager:
             current_theme = self.app.theme_manager.current_theme
             
             # ✅ ВСЕГДА устанавливаем текущую тему и премиум статус в appearance_page
-            if hasattr(self.app, 'appearance_page'):
-                self.app.appearance_page.set_current_theme(current_theme)
+            appearance_page = get_loaded_page(self.app, PageName.APPEARANCE)
+            if appearance_page is not None:
+                appearance_page.set_current_theme(current_theme)
                 
                 # Устанавливаем премиум статус
                 is_premium = False
@@ -524,7 +518,7 @@ class InitializationManager:
                         is_premium, _, _ = self.app.donate_checker.check_subscription_status(use_cache=True)
                     except Exception:
                         pass
-                self.app.appearance_page.set_premium_status(is_premium)
+                appearance_page.set_premium_status(is_premium)
                 log(f"🎨 Установлена текущая тема в галерее: '{current_theme}' (premium={is_premium})", "DEBUG")
             
             # ✅ qfluentwidgets manages ALL styling via setTheme(DARK/LIGHT/AUTO).

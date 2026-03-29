@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from ui.page_names import PageName
+from ui.main_window_pages import get_loaded_page
 
 
 def setup_main_window_compatibility_attrs(window) -> None:
@@ -24,13 +25,16 @@ def setup_main_window_compatibility_attrs(window) -> None:
         window.current_strategy_label = window.orchestra_zapret2_control_page.strategy_label
     elif hasattr(window, "zapret2_direct_control_page") and hasattr(window.zapret2_direct_control_page, "strategy_label"):
         window.current_strategy_label = window.zapret2_direct_control_page.strategy_label
-    elif hasattr(window.control_page, "strategy_label"):
-        window.current_strategy_label = window.control_page.strategy_label
+    else:
+        control_page = get_loaded_page(window, PageName.CONTROL)
+        if control_page is not None and hasattr(control_page, "strategy_label"):
+            window.current_strategy_label = control_page.strategy_label
 
     window.test_connection_btn = window.home_page.test_btn
     window.open_folder_btn = window.home_page.folder_btn
-    window.server_status_btn = window.about_page.update_btn
-    window.subscription_btn = window.about_page.premium_btn
+    about_page = get_loaded_page(window, PageName.ABOUT)
+    window.server_status_btn = getattr(about_page, "update_btn", None)
+    window.subscription_btn = getattr(about_page, "premium_btn", None)
 
     # Expose diagnostics sub-pages for backward-compat (cleanup, focus etc.)
     if PageName.BLOCKCHECK in window.pages:

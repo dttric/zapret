@@ -12,16 +12,12 @@ import subprocess
 import threading
 import time
 from typing import Optional, List, Callable
-from datetime import datetime
 from log import log
 
-from launcher_common.args_filters import apply_all_filters
 from launcher_common.constants import CREATE_NO_WINDOW
-from launcher_common.runner_base import StrategyRunnerBase, log_full_command
+from launcher_common.runner_base import StrategyRunnerBase
 from dpi.process_health_check import (
     check_common_crash_causes,
-    check_conflicting_processes,
-    get_conflicting_processes_report,
     diagnose_startup_error
 )
 
@@ -129,10 +125,6 @@ class StrategyRunnerV1(StrategyRunnerBase):
         self._config_watcher: Optional[ConfigFileWatcher] = None
         self._preset_file_path: Optional[str] = None
 
-    def get_preset_filename(self) -> str:
-        """Returns preset filename for Zapret 1 combined/custom launch."""
-        return "launch_direct_zapret1.txt"
-
     def _set_last_error(self, message: Optional[str]) -> None:
         try:
             text = str(message or "").strip()
@@ -173,40 +165,6 @@ class StrategyRunnerV1(StrategyRunnerBase):
         except Exception:
             pass
 
-    def _write_preset_file(self, args: List[str], strategy_name: str) -> str:
-        """
-        Writes arguments to preset file for loading via @file.
-        Uses a launch preset file for winws.exe.
-
-        Args:
-            args: List of command line arguments
-            strategy_name: Strategy name for comment
-
-        Returns:
-            Path to created file
-        """
-        preset_filename = self.get_preset_filename()
-        preset_path = os.path.join(self.work_dir, preset_filename)
-        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-
-        with open(preset_path, 'w', encoding='utf-8') as f:
-            f.write(f"# Strategy: {strategy_name}\n")
-            f.write(f"# Generated: {timestamp}\n")
-
-            first_filter_found = False
-
-            for arg in args:
-                if not first_filter_found and (arg.startswith('--filter-tcp') or arg.startswith('--filter-udp')):
-                    f.write("\n")
-                    first_filter_found = True
-
-                f.write(f"{arg}\n")
-
-                if arg == '--new':
-                    f.write("\n")
-
-        return preset_path
-
     def _on_config_changed(self) -> None:
         """Called when the launch preset file changes. Performs full restart."""
         log("Launch preset file changed, restarting winws.exe...", "INFO")
@@ -232,196 +190,6 @@ class StrategyRunnerV1(StrategyRunnerBase):
             interval=1.0,
         )
         self._config_watcher.start()
-
-    def start_strategy_custom(self, custom_args: List[str], strategy_name: str = "Custom Strategy", _retry_count: int = 0) -> bool:
-        """
-        Starts strategy with arbitrary arguments.
-
-        Legacy note:
-        ordinary direct_zapret1 launch is preset-based and should use
-        `start_from_preset_file()`. This method remains for combined/custom
-        launch scenarios.
-
-        Unlike V2:
-        - No hot-reload
-        - No --lua-* arguments
-
-        Args:
-            custom_args: List of command line arguments
-            strategy_name: Strategy name for logs
-            _retry_count: Internal retry counter (don't pass externally)
-        """
-        MAX_RETRIES = 2
-
-        conflicting = check_conflicting_processes()
-        if conflicting:
-            warning_report = get_conflicting_processes_report()
-            log(warning_report, "WARNING")
-
-        self._set_last_error(None)
-
-        try:
-            # Stop previous process
-            if self.running_process and self.is_running():
-                log("Stopping previous process before starting new one", "INFO")
-                self.stop()
-
-            from utils.process_killer import kill_winws_force
-
-            if _retry_count > 0:
-                # Aggressive cleanup only on retry
-                self._aggressive_windivert_cleanup()
-            else:
-                log("Cleaning up previous winws processes...", "DEBUG")
-                kill_winws_force()
-
-                self._fast_cleanup_services()
-
-                # Unload WinDivert drivers for complete cleanup
-                try:
-                    from utils.service_manager import unload_driver
-                    for driver in ["WinDivert", "WinDivert14", "WinDivert64", "Monkey"]:
-                        try:
-                            unload_driver(driver)
-                        except:
-                            pass
-                except:
-                    pass
-
-                time.sleep(0.3)
-
-            if not custom_args:
-                log("No arguments for startup", "ERROR")
-                self._set_last_error("Не заданы аргументы стратегии")
-                return False
-
-            # Self-healing: verify winws.exe still exists before launch
-            if not os.path.exists(self.winws_exe):
-                log(f"winws.exe disappeared: {self.winws_exe}", "ERROR")
-                self._set_last_error(f"winws.exe не найден: {self.winws_exe}")
-                return False
-
-            # Self-healing: ensure work/lists directories exist
-            for d in (self.work_dir, self.lists_dir, self.bin_dir):
-                if d and not os.path.isdir(d):
-                    try:
-                        os.makedirs(d, exist_ok=True)
-                        log(f"Auto-created missing directory: {d}", "INFO")
-                    except Exception as e:
-                        log(f"Cannot create directory {d}: {e}", "WARNING")
-
-            # Resolve paths
-            resolved_args = self._resolve_file_paths(custom_args)
-
-            # Apply ALL filters in correct order
-            resolved_args = apply_all_filters(resolved_args, self.lists_dir)
-
-            # Write config to file
-            preset_file = self._write_preset_file(resolved_args, strategy_name)
-            self._preset_file_path = preset_file
-
-            # Build command with @file
-            cmd = [self.winws_exe, f"@{preset_file}"]
-
-            log(f"Starting strategy '{strategy_name}'" + (f" (attempt {_retry_count + 1})" if _retry_count > 0 else ""), "INFO")
-            log(f"Config written to: {preset_file}", "DEBUG")
-            log(f"Arguments count: {len(resolved_args)}", "DEBUG")
-
-            # Save full command line for debugging
-            log_full_command([self.winws_exe] + resolved_args, strategy_name)
-
-            # Start process
-            self.running_process = subprocess.Popen(
-                cmd,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                stdin=subprocess.DEVNULL,
-                startupinfo=self._create_startup_info(),
-                creationflags=CREATE_NO_WINDOW,
-                cwd=self.work_dir
-            )
-
-            # Save info
-            self.current_strategy_name = strategy_name
-            self.current_strategy_args = resolved_args.copy()
-
-            # Quick startup check
-            time.sleep(0.2)
-
-            if self.running_process.poll() is None:
-                log(f"Strategy '{strategy_name}' started (PID: {self.running_process.pid})", "SUCCESS")
-                # Start config file watcher for hot-reload
-                self._start_config_watcher(preset_file)
-                self._set_last_error(None)
-                return True
-            else:
-                exit_code = self.running_process.returncode
-                log(f"Strategy '{strategy_name}' exited immediately (code: {exit_code})", "ERROR")
-
-                stderr_output = ""
-                try:
-                    stderr_output = self.running_process.stderr.read().decode('utf-8', errors='ignore')
-                    if stderr_output:
-                        log(f"Error: {stderr_output[:500]}", "ERROR")
-                except:
-                    pass
-
-                from dpi.process_health_check import diagnose_winws_exit
-                diag = diagnose_winws_exit(exit_code, stderr_output)
-                if diag:
-                    prefix = f"[AUTOFIX:{diag.auto_fix}]" if diag.auto_fix else ""
-                    self._set_last_error(f"{prefix}{diag.cause}. {diag.solution}")
-                    log(f"Diagnosis: {diag.cause} | Fix: {diag.solution} | auto_fix={diag.auto_fix}", "INFO")
-                else:
-                    first_line = ""
-                    try:
-                        first_line = next((ln.strip() for ln in (stderr_output or "").splitlines() if ln.strip()), "")
-                    except Exception:
-                        first_line = ""
-                    if first_line:
-                        self._set_last_error(f"winws завершился сразу (код {exit_code}): {first_line[:200]}")
-                    else:
-                        self._set_last_error(f"winws завершился сразу (код {exit_code})")
-
-                self.running_process = None
-                self.current_strategy_name = None
-                self.current_strategy_args = None
-
-                # System-level errors — don't retry
-                if self._is_windivert_system_error(stderr_output, exit_code):
-                    log("WinDivert system error — retry will not help", "WARNING")
-                    return False
-
-                # Retryable conflict
-                if self._is_windivert_conflict_error(stderr_output, exit_code) and _retry_count < MAX_RETRIES:
-                    log(f"Detected WinDivert conflict, automatic retry ({_retry_count + 1}/{MAX_RETRIES})...", "INFO")
-                    return self.start_strategy_custom(custom_args, strategy_name, _retry_count + 1)
-
-                if not diag:
-                    causes = check_common_crash_causes()
-                    if causes:
-                        log("Possible causes:", "INFO")
-                        for line in causes.split('\n')[:5]:
-                            log(f"  {line}", "INFO")
-
-                return False
-
-        except Exception as e:
-            diagnosis = diagnose_startup_error(e, self.winws_exe)
-            for line in diagnosis.split('\n'):
-                log(line, "ERROR")
-
-            try:
-                self._set_last_error(diagnosis.split("\n")[0].strip())
-            except Exception:
-                self._set_last_error(None)
-
-            import traceback
-            log(traceback.format_exc(), "DEBUG")
-            self.running_process = None
-            self.current_strategy_name = None
-            self.current_strategy_args = None
-            return False
 
     def start_from_preset_file(self, preset_path: str, strategy_name: str = "Preset", _retry_count: int = 0) -> bool:
         """

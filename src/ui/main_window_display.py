@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from log import log
 from ui.page_names import PageName
+from ui.main_window_pages import get_loaded_page
 
 
 def get_direct_strategy_summary(window, max_items: int = 2) -> str:
@@ -70,7 +71,9 @@ def update_current_strategy_display(window, strategy_name: str) -> None:
     except Exception:
         pass
 
-    window.control_page.update_strategy(strategy_name)
+    control_page = get_loaded_page(window, PageName.CONTROL)
+    if control_page is not None and hasattr(control_page, "update_strategy"):
+        control_page.update_strategy(strategy_name)
     try:
         page = getattr(window, "zapret2_direct_control_page", None)
         if page and hasattr(page, "update_strategy"):
@@ -94,12 +97,16 @@ def update_current_strategy_display(window, strategy_name: str) -> None:
 
 def update_autostart_display(window, enabled: bool, strategy_name: str = None) -> None:
     window.home_page.update_autostart_status(enabled)
-    window.autostart_page.update_status(enabled, strategy_name)
+    autostart_page = get_loaded_page(window, PageName.AUTOSTART)
+    if autostart_page is not None and hasattr(autostart_page, "update_status"):
+        autostart_page.update_status(enabled, strategy_name)
 
 
 def update_subscription_display(window, is_premium: bool, days: int = None) -> None:
     window.home_page.update_subscription_status(is_premium, days)
-    window.about_page.update_subscription_status(is_premium, days)
+    about_page = get_loaded_page(window, PageName.ABOUT)
+    if about_page is not None and hasattr(about_page, "update_subscription_status"):
+        about_page.update_subscription_status(is_premium, days)
 
 
 def set_status_text(window, text: str, status: str = "neutral") -> None:

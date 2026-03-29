@@ -6,7 +6,6 @@ import subprocess
 import time
 from abc import ABC, abstractmethod
 from typing import Optional, List, Dict
-from datetime import datetime
 
 from log import log
 from config import LOGS_FOLDER
@@ -112,32 +111,6 @@ class StrategyRunnerBase(ABC):
         log(f"Bin folder: {self.bin_dir}", "DEBUG")
 
     @abstractmethod
-    def start_strategy_custom(self, custom_args: List[str], strategy_name: str = "custom", _retry_count: int = 0) -> bool:
-        """
-        Start strategy with custom arguments.
-        Must be implemented by subclasses.
-
-        Legacy note:
-        ordinary direct_zapret1/direct_zapret2 launch should prefer
-        `start_from_preset_file()` with an already prepared preset file.
-        This method remains for combined/custom launch paths.
-
-        Args:
-            custom_args: List of command line arguments
-            strategy_name: Strategy name for logs
-            _retry_count: Internal retry counter (don't pass externally)
-
-        Returns:
-            True if strategy started successfully
-        """
-        pass
-
-    @abstractmethod
-    def get_preset_filename(self) -> str:
-        """Returns the launch preset filename for this runner type."""
-        pass
-
-    @abstractmethod
     def start_from_preset_file(self, preset_path: str, strategy_name: str = "Preset") -> bool:
         """
         Starts strategy directly from existing preset file.
@@ -145,9 +118,8 @@ class StrategyRunnerBase(ABC):
         This is the preferred method for launching DPI in the current
         preset-based direct architecture.
 
-        Concrete runners must implement this explicitly. We do not keep a
-        generic fallback here that silently routes preset launch through the
-        legacy custom-args path.
+        Concrete runners must implement this explicitly. Preset launch is the
+        only supported direct-start contract in the current architecture.
 
         Args:
             preset_path: Path to the prepared launch preset file
@@ -157,147 +129,6 @@ class StrategyRunnerBase(ABC):
             True if strategy started successfully
         """
         pass
-
-    def _write_preset_file(self, args: List[str], strategy_name: str) -> str:
-        """
-        Writes arguments to preset file for loading via @file.
-
-        Legacy note:
-        this mainly serves the old custom/combined args flow.
-        Ordinary direct preset launch should use an already prepared preset file.
-
-        Args:
-            args: List of command line arguments
-            strategy_name: Strategy name for comment
-
-        Returns:
-            Path to created file
-        """
-        preset_filename = self.get_preset_filename()
-        preset_path = os.path.join(self.work_dir, preset_filename)
-        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-
-        # Convert paths to relative for readability
-        relative_args = self._make_paths_relative(args)
-
-        with open(preset_path, 'w', encoding='utf-8') as f:
-            f.write(f"# Strategy: {strategy_name}\n")
-            f.write(f"# Generated: {timestamp}\n")
-
-            first_filter_found = False
-
-            for arg in relative_args:
-                if not first_filter_found and (arg.startswith('--filter-tcp') or arg.startswith('--filter-udp')):
-                    f.write("\n")
-                    first_filter_found = True
-
-                f.write(f"{arg}\n")
-
-                if arg == '--new':
-                    f.write("\n")
-
-        return preset_path
-
-    # Prefixes whose paths are relative to lists_dir (not work_dir)
-    _LISTS_PREFIXES = frozenset([
-        "--hostlist", "--hostlist-exclude", "--hostlist-domains",
-        "--ipset", "--ipset-exclude",
-    ])
-    # Prefixes that always point to files under lists/
-    _LISTS_FILE_PREFIXES = frozenset([
-        "--hostlist", "--hostlist-exclude",
-        "--ipset", "--ipset-exclude",
-    ])
-    # Prefixes whose paths are relative to bin_dir
-    _BIN_PREFIXES = frozenset([
-        "--dpi-desync-fake-tls", "--dpi-desync-fake-syndata",
-        "--dpi-desync-fake-quic", "--dpi-desync-fake-unknown-udp",
-        "--dpi-desync-fake-unknown", "--dpi-desync-fake-http",
-        "--dpi-desync-split-seqovl-pattern", "--dpi-desync-fakedsplit-pattern",
-        "--dpi-desync-fake-discord", "--dpi-desync-fake-stun",
-        "--dpi-desync-fake-dht", "--dpi-desync-fake-wireguard",
-        "--dpi-desync-fake-tls-mod",
-    ])
-
-    def _make_paths_relative(self, args: List[str]) -> List[str]:
-        """
-        Converts absolute paths to relative for config readability.
-
-        IMPORTANT: paths are made relative to their *source* directory
-        (lists_dir for hostlist/ipset, bin_dir for fake-* files).
-
-        For list-file options we keep explicit "lists/..." in preset values,
-        because winws/winws2 resolves @preset lines relative to work_dir.
-        """
-        result = []
-        lists_dir_normalized = os.path.normpath(self.lists_dir).lower()
-        bin_dir_normalized = os.path.normpath(self.bin_dir).lower()
-        work_dir_normalized = os.path.normpath(self.work_dir).lower()
-
-        for arg in args:
-            if '=' not in arg:
-                result.append(arg)
-                continue
-
-            prefix, value = arg.split('=', 1)
-
-            value_clean = value.strip('"').strip("'")
-
-            # Check special format --blob=name:@path or --blob=name:+offset@path
-            if ':' in value_clean and prefix == '--blob':
-                colon_idx = value_clean.index(':')
-                blob_name = value_clean[:colon_idx]
-                blob_value = value_clean[colon_idx + 1:]
-
-                offset_prefix = ""
-                if blob_value.startswith('+'):
-                    at_idx = blob_value.find('@')
-                    if at_idx > 0:
-                        offset_prefix = blob_value[:at_idx]
-                        blob_value = blob_value[at_idx:]
-
-                if blob_value.startswith('@'):
-                    path = blob_value[1:]
-                    path_normalized = os.path.normpath(path).lower()
-                    if path_normalized.startswith(work_dir_normalized):
-                        rel_path = os.path.relpath(path, self.work_dir).replace('\\', '/')
-                        result.append(f'{prefix}={blob_name}:{offset_prefix}@{rel_path}')
-                    else:
-                        result.append(arg)
-                else:
-                    result.append(arg)
-                continue
-
-            has_at_prefix = value_clean.startswith('@')
-            path_value = value_clean[1:] if has_at_prefix else value_clean
-
-            path_normalized = os.path.normpath(path_value).lower()
-
-            # Pick the right base directory for relpath
-            if prefix in self._LISTS_PREFIXES and path_normalized.startswith(lists_dir_normalized):
-                base_dir = self.lists_dir
-            elif prefix in self._BIN_PREFIXES and path_normalized.startswith(bin_dir_normalized):
-                base_dir = self.bin_dir
-            elif path_normalized.startswith(work_dir_normalized):
-                base_dir = self.work_dir
-            else:
-                result.append(arg)
-                continue
-
-            rel_path = os.path.relpath(path_value, base_dir).replace('\\', '/')
-
-            # Keep list paths explicit for @preset launches from work_dir:
-            # --hostlist=lists/file.txt (not bare --hostlist=file.txt).
-            if prefix in self._LISTS_FILE_PREFIXES and rel_path:
-                if not rel_path.lower().startswith("lists/"):
-                    rel_path = f"lists/{rel_path.lstrip('/')}"
-
-            if has_at_prefix:
-                result.append(f'{prefix}=@{rel_path}')
-            else:
-                result.append(f'{prefix}={rel_path}')
-
-        return result
 
     def _create_startup_info(self):
         """Creates STARTUPINFO for hidden process launch"""
