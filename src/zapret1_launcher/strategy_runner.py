@@ -69,6 +69,16 @@ class ConfigFileWatcher:
         self._thread.start()
         log(f"ConfigFileWatcher started for: {self._file_path}", "DEBUG")
 
+    def update_file_path(self, file_path: str) -> None:
+        """Switch watched file without restarting watcher thread."""
+        self._file_path = str(file_path or "")
+        self._last_mtime = None
+        try:
+            if self._file_path and os.path.exists(self._file_path):
+                self._last_mtime = os.path.getmtime(self._file_path)
+        except Exception:
+            self._last_mtime = None
+
     def stop(self):
         """Stop watching the file"""
         if not self._running:
@@ -170,7 +180,7 @@ class StrategyRunnerV1(StrategyRunnerBase):
         log("Launch preset file changed, restarting winws.exe...", "INFO")
         try:
             if self._preset_file_path and os.path.exists(self._preset_file_path):
-                self.start_from_preset_file(
+                self.switch_preset_file_fast(
                     self._preset_file_path,
                     strategy_name=self.current_launch_label or "Preset",
                 )
@@ -178,11 +188,11 @@ class StrategyRunnerV1(StrategyRunnerBase):
             log(f"Error restarting after config change: {e}", "ERROR")
 
     def _start_config_watcher(self, preset_file: str) -> None:
-        """Starts config file watcher for hot-reload."""
-        # Stop existing watcher
+        """Starts config file watcher for hot-reload or retargets existing watcher."""
         if self._config_watcher:
-            self._config_watcher.stop()
-            self._config_watcher = None
+            self._config_watcher.update_file_path(preset_file)
+            log(f"ConfigFileWatcherV1 retargeted to: {preset_file}", "DEBUG")
+            return
 
         self._config_watcher = ConfigFileWatcher(
             file_path=preset_file,
@@ -190,6 +200,112 @@ class StrategyRunnerV1(StrategyRunnerBase):
             interval=1.0,
         )
         self._config_watcher.start()
+
+    def _stop_process_only(self) -> None:
+        """Stops only the current winws.exe process without heavy driver/service cleanup."""
+        try:
+            if self.running_process and self.is_running():
+                pid = self.running_process.pid
+                strategy_name = self.current_launch_label or "unknown"
+                log(f"Fast switch: stopping '{strategy_name}' (PID: {pid})", "INFO")
+
+                self.running_process.terminate()
+                try:
+                    self.running_process.wait(timeout=3)
+                except subprocess.TimeoutExpired:
+                    log("Fast switch: soft stop timeout, force killing", "WARNING")
+                    self.running_process.kill()
+                    self.running_process.wait()
+
+                self.running_process = None
+
+            self._kill_all_winws_processes()
+        except Exception as e:
+            log(f"Fast switch: error stopping process: {e}", "ERROR")
+
+    def _start_from_preset(self) -> bool:
+        """Starts process from already selected preset file without heavy full cleanup."""
+        if not self._preset_file_path or not os.path.exists(self._preset_file_path):
+            self._set_last_error("Preset файл не найден для быстрого переключения")
+            return False
+
+        try:
+            with open(self._preset_file_path, "r", encoding="utf-8", errors="replace") as f:
+                launch_args = _launch_args_from_preset_text(f.read())
+        except Exception as e:
+            log(f"Fast switch: failed to read preset file '{self._preset_file_path}': {e}", "ERROR")
+            self._set_last_error(f"Не удалось прочитать preset файл: {e}")
+            return False
+
+        if not launch_args:
+            self._set_last_error("Не удалось подготовить аргументы запуска из preset файла")
+            return False
+
+        try:
+            cmd = [self.winws_exe, *launch_args]
+
+            self.running_process = subprocess.Popen(
+                cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                stdin=subprocess.DEVNULL,
+                startupinfo=self._create_startup_info(),
+                creationflags=CREATE_NO_WINDOW,
+                cwd=self.work_dir
+            )
+
+            self.current_strategy_args = list(launch_args)
+            time.sleep(0.2)
+
+            if self.running_process.poll() is None:
+                log(
+                    f"Fast switch: strategy '{self.current_launch_label or 'Preset'}' started "
+                    f"(PID: {self.running_process.pid})",
+                    "SUCCESS",
+                )
+                self._set_last_error(None)
+                return True
+
+            exit_code = self.running_process.returncode
+            log(f"Fast switch failed: process exited immediately (code: {exit_code})", "ERROR")
+            self.running_process = None
+            self.current_strategy_args = None
+            self._set_last_error(f"winws завершился сразу (код {exit_code})")
+            return False
+        except Exception as e:
+            log(f"Fast switch: error starting from preset: {e}", "ERROR")
+            self.running_process = None
+            self.current_strategy_args = None
+            self._set_last_error(str(e))
+            return False
+
+    def switch_preset_file_fast(self, preset_path: str, strategy_name: str = "Preset") -> bool:
+        """Fast path for switching running direct preset without full aggressive cleanup."""
+        if not os.path.exists(preset_path):
+            log(f"Fast switch preset file not found: {preset_path}", "ERROR")
+            self._set_last_error(f"Preset файл не найден: {preset_path}")
+            return False
+
+        self._set_last_error(None)
+
+        try:
+            if self._config_watcher:
+                self._config_watcher.stop()
+                self._config_watcher = None
+        except Exception:
+            pass
+
+        if self.running_process and self.is_running():
+            self._stop_process_only()
+            time.sleep(0.15)
+
+        self._preset_file_path = preset_path
+        self.current_launch_label = strategy_name
+
+        success = self._start_from_preset()
+        if success:
+            self._start_config_watcher(preset_path)
+        return success
 
     def start_from_preset_file(self, preset_path: str, strategy_name: str = "Preset", _retry_count: int = 0) -> bool:
         """

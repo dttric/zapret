@@ -13,6 +13,7 @@ from ui.pages.base_page import BasePage
 from ui.compat_widgets import ActionButton, PrimaryActionButton, PulsingDot, SettingsCard, SettingsRow, set_tooltip
 from ui.main_window_state import AppUiState, MainWindowStateStore
 from ui.text_catalog import tr as tr_catalog
+from ui.window_action_controller import start_dpi, stop_and_exit, stop_dpi
 
 try:
     from qfluentwidgets import (
@@ -57,9 +58,19 @@ class Zapret1DirectControlPage(BasePage):
             title_key="page.z1_control.title",
             subtitle_key="page.z1_control.subtitle",
         )
+        self.parent_app = parent
         self._ui_state_store = None
         self._ui_state_unsubscribe = None
         self._build_ui()
+
+    def _start_dpi(self) -> None:
+        start_dpi(self)
+
+    def _stop_dpi(self) -> None:
+        stop_dpi(self)
+
+    def _stop_and_exit(self) -> None:
+        stop_and_exit(self)
 
     def showEvent(self, a0):
         super().showEvent(a0)
@@ -136,12 +147,14 @@ class Zapret1DirectControlPage(BasePage):
             "fa5s.play",
             accent=True,
         )
+        self.start_btn.clicked.connect(self._start_dpi)
         buttons_layout.addWidget(self.start_btn)
 
         self.stop_winws_btn = StopButton(
             tr_catalog("page.z1_control.button.stop_winws", language=self._ui_language, default="Остановить winws.exe"),
             "fa5s.stop",
         )
+        self.stop_winws_btn.clicked.connect(self._stop_dpi)
         self.stop_winws_btn.setVisible(False)
         buttons_layout.addWidget(self.stop_winws_btn)
 
@@ -149,6 +162,7 @@ class Zapret1DirectControlPage(BasePage):
             tr_catalog("page.z1_control.button.stop_and_exit", language=self._ui_language, default="Остановить и закрыть"),
             "fa5s.power-off",
         )
+        self.stop_and_exit_btn.clicked.connect(self._stop_and_exit)
         self.stop_and_exit_btn.setVisible(False)
         buttons_layout.addWidget(self.stop_and_exit_btn)
 

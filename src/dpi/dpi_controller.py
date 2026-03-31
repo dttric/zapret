@@ -465,6 +465,79 @@ class DPIStopWorker(QObject):
             return False
 
 
+class DirectPresetSwitchWorker(QObject):
+    """Worker для быстрого переключения running direct пресета без общего restart pipeline."""
+
+    finished = pyqtSignal(bool, str, int, str, bool)  # success, error, generation, method, skipped_as_stale
+    progress = pyqtSignal(str)
+
+    def __init__(self, app_instance, launch_method: str, generation: int, is_generation_current):
+        super().__init__()
+        self.app_instance = app_instance
+        self.launch_method = str(launch_method or "").strip().lower()
+        self.generation = int(generation)
+        self._is_generation_current = is_generation_current
+
+    def _get_winws_exe(self) -> str:
+        from config.config import get_winws_exe_for_method
+
+        return get_winws_exe_for_method(self.launch_method)
+
+    def run(self):
+        try:
+            if self.launch_method not in ("direct_zapret1", "direct_zapret2"):
+                self.finished.emit(
+                    False,
+                    f"Неподдерживаемый метод direct switch: {self.launch_method}",
+                    self.generation,
+                    self.launch_method,
+                    False,
+                )
+                return
+
+            self.progress.emit("Применяем пресет...")
+
+            from core.services import get_direct_flow_coordinator
+            from launcher_common import get_strategy_runner
+
+            profile = get_direct_flow_coordinator().ensure_launch_profile(
+                self.launch_method,
+                require_filters=True,
+            )
+
+            if not bool(self._is_generation_current(self.generation)):
+                self.finished.emit(True, "", self.generation, self.launch_method, True)
+                return
+
+            runner = get_strategy_runner(self._get_winws_exe())
+            switch_method = getattr(runner, "switch_preset_file_fast", None)
+            if callable(switch_method):
+                success = bool(
+                    switch_method(
+                        str(profile.launch_config_path),
+                        profile.display_name,
+                    )
+                )
+            else:
+                success = bool(
+                    runner.start_from_preset_file(
+                        str(profile.launch_config_path),
+                        profile.display_name,
+                    )
+                )
+
+            if not success:
+                short_error = str(getattr(runner, "last_error", "") or "").strip()
+                if not short_error:
+                    short_error = "Не удалось применить выбранный пресет"
+                self.finished.emit(False, short_error, self.generation, self.launch_method, False)
+                return
+
+            self.finished.emit(True, "", self.generation, self.launch_method, False)
+        except Exception as e:
+            self.finished.emit(False, str(e), self.generation, self.launch_method, False)
+
+
 class StopAndExitWorker(QObject):
     """Worker для остановки DPI и выхода из программы"""
     finished = pyqtSignal()
@@ -521,10 +594,151 @@ class DPIController:
         self._dpi_start_thread = None
         self._dpi_stop_thread = None
         self._stop_exit_thread = None
+        self._direct_preset_switch_thread = None
+        self._direct_preset_switch_worker = None
+        self._direct_preset_switch_requested_generation = 0
+        self._direct_preset_switch_completed_generation = 0
+        self._direct_preset_switch_method = ""
         self._pending_launch_warnings: list[str] = []
+        self._restart_request_generation = 0
+        self._restart_completed_generation = 0
+        self._restart_pending_stop_generation = 0
+        self._restart_active_start_generation = 0
         # Generation token for async start verification.
         # Prevents stale QTimer checks from previous start attempts.
         self._dpi_start_verify_generation = 0
+
+    def _process_pending_direct_preset_switch(self) -> None:
+        target_generation = int(self._direct_preset_switch_requested_generation or 0)
+        if target_generation <= int(self._direct_preset_switch_completed_generation or 0):
+            return
+
+        launch_method = str(
+            self._direct_preset_switch_method or get_strategy_launch_method() or ""
+        ).strip().lower()
+        if launch_method not in ("direct_zapret1", "direct_zapret2"):
+            return
+
+        try:
+            if self._direct_preset_switch_thread and self._direct_preset_switch_thread.isRunning():
+                return
+        except RuntimeError:
+            self._direct_preset_switch_thread = None
+
+        try:
+            if self._dpi_start_thread and self._dpi_start_thread.isRunning():
+                log(
+                    f"Direct preset switch отложен: основной start pipeline ещё идёт, поколение {target_generation}",
+                    "DEBUG",
+                )
+                return
+        except RuntimeError:
+            self._dpi_start_thread = None
+
+        try:
+            if self._dpi_stop_thread and self._dpi_stop_thread.isRunning():
+                log(
+                    f"Direct preset switch отложен: stop pipeline ещё идёт, поколение {target_generation}",
+                    "DEBUG",
+                )
+                return
+        except RuntimeError:
+            self._dpi_stop_thread = None
+
+        if not self.is_running():
+            log("Direct preset switch пропущен: DPI уже не запущен", "DEBUG")
+            self._direct_preset_switch_completed_generation = target_generation
+            return
+
+        store = getattr(self.app, "ui_state_store", None)
+        if store is not None:
+            store.set_dpi_busy(True, "Применение пресета...")
+
+        if hasattr(self.app, 'main_window') and hasattr(self.app.main_window, '_show_active_strategy_page_loading'):
+            self.app.main_window._show_active_strategy_page_loading()
+
+        self._direct_preset_switch_thread = QThread()
+        self._direct_preset_switch_worker = DirectPresetSwitchWorker(
+            self.app,
+            launch_method,
+            target_generation,
+            lambda generation: generation == self._direct_preset_switch_requested_generation,
+        )
+        self._direct_preset_switch_worker.moveToThread(self._direct_preset_switch_thread)
+        self._direct_preset_switch_thread.started.connect(self._direct_preset_switch_worker.run)
+        self._direct_preset_switch_worker.progress.connect(self.app.set_status)
+        self._direct_preset_switch_worker.finished.connect(self._on_direct_preset_switch_finished)
+
+        def cleanup_switch_thread():
+            try:
+                if self._direct_preset_switch_thread:
+                    self._direct_preset_switch_thread.quit()
+                    self._direct_preset_switch_thread.wait(2000)
+                    self._direct_preset_switch_thread = None
+                if self._direct_preset_switch_worker is not None:
+                    self._direct_preset_switch_worker.deleteLater()
+                    self._direct_preset_switch_worker = None
+            except Exception as e:
+                log(f"Ошибка при очистке direct preset switch thread: {e}", "❌ ERROR")
+
+        self._direct_preset_switch_worker.finished.connect(cleanup_switch_thread)
+        self._direct_preset_switch_thread.start()
+
+    def switch_direct_preset_async(self, launch_method: str | None = None) -> None:
+        method = str(launch_method or get_strategy_launch_method() or "").strip().lower()
+        if method not in ("direct_zapret1", "direct_zapret2"):
+            self.restart_dpi_async()
+            return
+
+        self._direct_preset_switch_method = method
+        self._direct_preset_switch_requested_generation += 1
+        log(
+            f"Direct preset switch запросили, актуальное поколение {self._direct_preset_switch_requested_generation} ({method})",
+            "INFO",
+        )
+        self._process_pending_direct_preset_switch()
+
+    def _process_pending_restart_request(self) -> None:
+        target_generation = int(self._restart_request_generation or 0)
+        if target_generation <= int(self._restart_completed_generation or 0):
+            return
+
+        try:
+            if self._dpi_start_thread and self._dpi_start_thread.isRunning():
+                log(
+                    f"Перезапуск DPI отложен: запуск ещё идёт, актуальное поколение {target_generation}",
+                    "DEBUG",
+                )
+                return
+        except RuntimeError:
+            self._dpi_start_thread = None
+
+        try:
+            if self._dpi_stop_thread and self._dpi_stop_thread.isRunning():
+                self._restart_pending_stop_generation = target_generation
+                log(
+                    f"Перезапуск DPI отложен: остановка ещё идёт, актуальное поколение {target_generation}",
+                    "DEBUG",
+                )
+                return
+        except RuntimeError:
+            self._dpi_stop_thread = None
+
+        if self.is_running():
+            self._restart_pending_stop_generation = target_generation
+            log(
+                f"Перезапуск DPI: сначала останавливаем текущий процесс, актуальное поколение {target_generation}",
+                "INFO",
+            )
+            self.stop_dpi_async()
+            return
+
+        self._restart_active_start_generation = target_generation
+        log(
+            f"Перезапуск DPI: запускаем актуальный выбранный пресет, поколение {target_generation}",
+            "INFO",
+        )
+        self.start_dpi_async()
 
     def _show_launch_error_top(self, message: str) -> None:
         """Показывает человеко-понятную ошибку запуска через верхний InfoBar."""
@@ -963,6 +1177,7 @@ class DPIController:
     
     def _on_dpi_start_finished(self, success, error_message):
         """Обрабатывает завершение асинхронного запуска DPI"""
+        completed_restart_generation = int(self._restart_active_start_generation or 0)
         try:
             store = getattr(self.app, "ui_state_store", None)
             if store is not None:
@@ -979,6 +1194,12 @@ class DPIController:
                 self._verify_dpi_process_running(verify_gen)
                     
             else:
+                if completed_restart_generation:
+                    self._restart_completed_generation = max(
+                        self._restart_completed_generation,
+                        completed_restart_generation,
+                    )
+                    self._restart_active_start_generation = 0
                 log(f"Ошибка асинхронного запуска DPI: {error_message}", "❌ ERROR")
                 self.app.set_status(f"❌ Ошибка запуска: {error_message}")
                 self._show_launch_error_top(error_message)
@@ -990,6 +1211,11 @@ class DPIController:
                 # ✅ ИСПОЛЬЗУЕМ PROCESS MONITOR MANAGER
                 if hasattr(self.app, 'process_monitor_manager'):
                     self.app.process_monitor_manager.on_process_status_changed(False)
+
+                if self._restart_request_generation > self._restart_completed_generation:
+                    QTimer.singleShot(0, self._process_pending_restart_request)
+                if self._direct_preset_switch_requested_generation > self._direct_preset_switch_completed_generation:
+                    QTimer.singleShot(0, self._process_pending_direct_preset_switch)
                 
         except Exception as e:
             log(f"Ошибка при обработке результата запуска DPI: {e}", "❌ ERROR")
@@ -1030,6 +1256,14 @@ class DPIController:
         if verify_gen is not None and verify_gen != self._dpi_start_verify_generation:
             return
 
+        completed_restart_generation = int(self._restart_active_start_generation or 0)
+        if completed_restart_generation:
+            self._restart_completed_generation = max(
+                self._restart_completed_generation,
+                completed_restart_generation,
+            )
+            self._restart_active_start_generation = 0
+
         if running:
             log("DPI запущен асинхронно", "INFO")
             self.app.set_status("✅ DPI успешно запущен")
@@ -1069,8 +1303,14 @@ class DPIController:
             if hasattr(self.app, 'ui_manager'):
                 self.app.ui_manager.update_ui_state(running=False)
 
+        if self._restart_request_generation > self._restart_completed_generation:
+            QTimer.singleShot(0, self._process_pending_restart_request)
+        if self._direct_preset_switch_requested_generation > self._direct_preset_switch_completed_generation:
+            QTimer.singleShot(0, self._process_pending_direct_preset_switch)
+
     def _on_dpi_stop_finished(self, success, error_message):
         """Обрабатывает завершение асинхронной остановки DPI"""
+        restart_generation_after_stop = int(self._restart_pending_stop_generation or 0)
         try:
             store = getattr(self.app, "ui_state_store", None)
             if store is not None:
@@ -1097,6 +1337,15 @@ class DPIController:
                     # ✅ ИСПОЛЬЗУЕМ PROCESS MONITOR MANAGER
                     if hasattr(self.app, 'process_monitor_manager'):
                         self.app.process_monitor_manager.on_process_status_changed(False)
+
+                    if restart_generation_after_stop > self._restart_completed_generation:
+                        self._restart_pending_stop_generation = 0
+                        self._restart_active_start_generation = max(
+                            restart_generation_after_stop,
+                            self._restart_request_generation,
+                        )
+                        self.start_dpi_async()
+                        return
                 else:
                     # Процесс всё ещё работает
                     log("DPI всё ещё работает после попытки остановки", "⚠ WARNING")
@@ -1106,6 +1355,8 @@ class DPIController:
                         self.app.ui_manager.update_ui_state(running=True)
                     if hasattr(self.app, 'process_monitor_manager'):
                         self.app.process_monitor_manager.on_process_status_changed(True)
+
+                    self._restart_pending_stop_generation = 0
                 
             else:
                 log(f"Ошибка асинхронной остановки DPI: {error_message}", "❌ ERROR")
@@ -1121,10 +1372,50 @@ class DPIController:
                 # ✅ ИСПОЛЬЗУЕМ PROCESS MONITOR MANAGER
                 if hasattr(self.app, 'process_monitor_manager'):
                     self.app.process_monitor_manager.on_process_status_changed(is_running)
+
+                self._restart_pending_stop_generation = 0
                 
         except Exception as e:
             log(f"Ошибка при обработке результата остановки DPI: {e}", "❌ ERROR")
             self.app.set_status(f"Ошибка: {e}")
+        finally:
+            if self._direct_preset_switch_requested_generation > self._direct_preset_switch_completed_generation:
+                QTimer.singleShot(0, self._process_pending_direct_preset_switch)
+
+    def _on_direct_preset_switch_finished(self, success, error_message, generation, launch_method, skipped_as_stale):
+        try:
+            store = getattr(self.app, "ui_state_store", None)
+            if store is not None:
+                store.set_dpi_busy(False)
+
+            if hasattr(self.app, 'main_window') and hasattr(self.app.main_window, '_show_active_strategy_page_success'):
+                self.app.main_window._show_active_strategy_page_success()
+
+            self._direct_preset_switch_completed_generation = max(
+                int(self._direct_preset_switch_completed_generation or 0),
+                int(generation or 0),
+            )
+
+            if skipped_as_stale:
+                log(
+                    f"Direct preset switch поколения {generation} пропущен как устаревший ({launch_method})",
+                    "DEBUG",
+                )
+            elif success:
+                log(
+                    f"Direct preset switch успешно завершён, поколение {generation} ({launch_method})",
+                    "INFO",
+                )
+            else:
+                log(
+                    f"Ошибка direct preset switch, поколение {generation} ({launch_method}): {error_message}",
+                    "❌ ERROR",
+                )
+                self.app.set_status(f"❌ Ошибка переключения пресета: {error_message}")
+                self._show_launch_error_top(error_message)
+        finally:
+            if self._direct_preset_switch_requested_generation > self._direct_preset_switch_completed_generation:
+                QTimer.singleShot(0, self._process_pending_direct_preset_switch)
     
     def _on_stop_and_exit_finished(self):
         """Завершает приложение после остановки DPI"""
@@ -1182,23 +1473,15 @@ class DPIController:
 
     def restart_dpi_async(self):
         """
-        Перезапускает DPI асинхронно (останавливает и снова запускает).
+        Перезапускает DPI по модели "последний запрос побеждает".
 
-        Если DPI не запущен - просто запускает.
-        Если запущен - останавливает, ждёт 500ms, затем запускает.
+        Старые запросы не исполняются повторно: если пользователь быстро
+        переключает пресеты, мы запоминаем только последнее поколение
+        запроса и продолжаем pipeline от него.
         """
-        from PyQt6.QtCore import QTimer
-
-        log("Перезапуск DPI...", "INFO")
-
-        if self.is_running():
-            # DPI запущен - останавливаем, потом запускаем через таймер
-            log("DPI запущен, останавливаем перед перезапуском", "DEBUG")
-            self.stop_dpi_async()
-
-            # Запускаем снова через 500ms (чтобы остановка успела завершиться)
-            QTimer.singleShot(500, lambda: self.start_dpi_async())
-        else:
-            # DPI не запущен - просто запускаем
-            log("DPI не запущен, запускаем", "DEBUG")
-            self.start_dpi_async()
+        self._restart_request_generation += 1
+        log(
+            f"Перезапуск DPI запросили, актуальное поколение {self._restart_request_generation}",
+            "INFO",
+        )
+        self._process_pending_restart_request()

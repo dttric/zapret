@@ -408,6 +408,7 @@ class MainWindowUI:
                 and self.dpi_controller.is_running()
             ),
             restart_dpi_async=lambda: self.dpi_controller.restart_dpi_async(),
+            switch_direct_preset_async=lambda method: self.dpi_controller.switch_direct_preset_async(method),
             refresh_after_switch=self._refresh_pages_after_preset_switch,
         )
 
@@ -811,26 +812,6 @@ class MainWindowUI:
     def _auto_start_after_method_switch(self, method: str):
         auto_start_after_main_window_method_switch(self, method)
 
-    def _request_start_dpi(self):
-        handler = getattr(self, "_start_requested_handler", None)
-        if callable(handler):
-            handler()
-            return
-        if hasattr(self, "dpi_controller") and self.dpi_controller:
-            self.dpi_controller.start_dpi_async()
-
-    def _request_stop_dpi(self):
-        if hasattr(self, "dpi_controller") and self.dpi_controller:
-            self.dpi_controller.stop_dpi_async()
-
-    def _request_open_connection_test(self):
-        if hasattr(self, "open_connection_test"):
-            self.open_connection_test()
-
-    def _request_open_folder(self):
-        if hasattr(self, "open_folder"):
-            self.open_folder()
-
     def _call_loaded_strategy_page_method(self, method_name: str) -> bool:
         page = get_loaded_strategy_page_for_method(self)
         if page is None:
@@ -849,42 +830,6 @@ class MainWindowUI:
 
     def _show_active_strategy_page_success(self) -> bool:
         return self._call_loaded_strategy_page_method("show_success")
-
-    def _proxy_start_click(self):
-        home_page = self.get_loaded_page(PageName.HOME)
-        if home_page is not None and hasattr(home_page, "start_btn"):
-            home_page.start_btn.click()
-
-    def _proxy_stop_click(self):
-        home_page = self.get_loaded_page(PageName.HOME)
-        if home_page is not None and hasattr(home_page, "stop_btn"):
-            home_page.stop_btn.click()
-
-    def _proxy_stop_and_exit(self):
-        from log import log
-        log("Остановка winws и закрытие программы...", "INFO")
-        if hasattr(self, "request_exit"):
-            self.request_exit(stop_dpi=True)
-            return
-        if hasattr(self, 'dpi_controller') and self.dpi_controller:
-            self._closing_completely = True
-            self.dpi_controller.stop_and_exit_async()
-        else:
-            home_page = self.get_loaded_page(PageName.HOME)
-            if home_page is not None and hasattr(home_page, "stop_btn"):
-                home_page.stop_btn.click()
-            from PyQt6.QtWidgets import QApplication
-            QApplication.quit()
-
-    def _proxy_test_click(self):
-        home_page = self.get_loaded_page(PageName.HOME)
-        if home_page is not None and hasattr(home_page, "test_btn"):
-            home_page.test_btn.click()
-
-    def _proxy_folder_click(self):
-        home_page = self.get_loaded_page(PageName.HOME)
-        if home_page is not None and hasattr(home_page, "folder_btn"):
-            home_page.folder_btn.click()
 
     def _open_subscription_dialog(self):
         open_subscription_dialog(self)

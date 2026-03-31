@@ -60,7 +60,7 @@ def get_inline_value() -> str:
         _TOKEN_CACHE = _BUILD_TOKEN
         return _TOKEN_CACHE
 
-    env_value = os.getenv('ZAPRET_TG_BOT_TOKEN')
+    env_value = os.getenv('ZAPRET_TG_BOT_TOKEN') or os.getenv('ZAPRET_TG_UPDATE_BOT_TOKEN')
     if env_value:
         _TOKEN_CACHE = env_value
         return _TOKEN_CACHE
@@ -336,5 +336,4 @@ def _extract_version(file_name: str, text: str) -> Optional[str]:
 def is_telegram_available() -> bool:
     """Проверяет доступность Telegram Bot API"""
     return bool(get_inline_value())
-
 

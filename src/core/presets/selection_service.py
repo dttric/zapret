@@ -42,6 +42,25 @@ class PresetSelectionService:
         )
         return preset
 
+    def select_preset_file_name_fast(self, engine: str, file_name: str) -> str:
+        """Direct selection path that does not depend on preset index.json."""
+        candidate = str(file_name or "").strip()
+        if not candidate:
+            raise ValueError("Preset file name is required")
+
+        presets_dir = self._paths.engine_paths(engine).ensure_directories().presets_dir
+        preset_path = presets_dir / candidate
+        if not preset_path.exists():
+            raise ValueError(f"Preset not found: {file_name}")
+
+        path = self._selection_path(engine)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(
+            json.dumps({"selected_file_name": candidate}, ensure_ascii=False, indent=2) + "\n",
+            encoding="utf-8",
+        )
+        return candidate
+
     def clear_selection(self, engine: str) -> None:
         try:
             self._selection_path(engine).unlink()

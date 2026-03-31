@@ -13,7 +13,7 @@ class PresetRuntimeCoordinator(QObject):
 
     Responsibilities:
     - watch the active preset file for external/source changes
-    - debounce process restart after preset switch
+    - request process restart after preset switch
     - invoke UI refresh callbacks after preset changes
 
     UI code should provide callbacks, but the runtime policy itself lives here.
@@ -27,6 +27,7 @@ class PresetRuntimeCoordinator(QObject):
         get_active_preset_path: Callable[[], str],
         is_dpi_running: Callable[[], bool],
         restart_dpi_async: Callable[[], None],
+        switch_direct_preset_async: Callable[[str], None],
         refresh_after_switch: Callable[[], None],
     ) -> None:
         super().__init__(parent)
@@ -34,11 +35,11 @@ class PresetRuntimeCoordinator(QObject):
         self._get_active_preset_path = get_active_preset_path
         self._is_dpi_running = is_dpi_running
         self._restart_dpi_async = restart_dpi_async
+        self._switch_direct_preset_async = switch_direct_preset_async
         self._refresh_after_switch = refresh_after_switch
 
         self._active_preset_file_watcher: QFileSystemWatcher | None = None
         self._active_preset_file_refresh_timer: QTimer | None = None
-        self._preset_switch_restart_timer: QTimer | None = None
         self._preset_switch_refresh_timer: QTimer | None = None
         self._active_preset_file_path: str = ""
 
@@ -79,32 +80,25 @@ class PresetRuntimeCoordinator(QObject):
     def handle_preset_switched(self, preset_file_name: str) -> None:
         log(f"Пресет переключен: {preset_file_name}", "INFO")
         self.setup_active_preset_file_watcher()
-        self.schedule_dpi_restart_after_preset_switch()
+        self.request_dpi_restart_after_preset_switch()
         self.schedule_refresh_after_preset_switch()
 
-    def schedule_dpi_restart_after_preset_switch(self, delay_ms: int = 350) -> None:
+    def request_dpi_restart_after_preset_switch(self) -> None:
         try:
             if not self._is_dpi_running():
                 return
-
-            timer = self._preset_switch_restart_timer
-            if timer is None:
-                timer = QTimer(self)
-                timer.setSingleShot(True)
-                timer.timeout.connect(self._restart_dpi_after_preset_switch)
-                self._preset_switch_restart_timer = timer
-            timer.start(max(0, int(delay_ms)))
+            launch_method = str(self._get_launch_method() or "").strip().lower()
+            if launch_method in {"direct_zapret1", "direct_zapret2"}:
+                log(
+                    f"DPI запущен - переключаем текущий direct пресет через выделенный pipeline ({launch_method})",
+                    "INFO",
+                )
+                self._switch_direct_preset_async(launch_method)
+                return
+            log("DPI запущен - запрашиваем перезапуск после смены пресета", "INFO")
+            self._restart_dpi_async()
         except Exception:
             return
-
-    def _restart_dpi_after_preset_switch(self) -> None:
-        try:
-            if not self._is_dpi_running():
-                return
-            log("DPI запущен - выполняем перезапуск после смены пресета (debounce)", "INFO")
-            self._restart_dpi_async()
-        except Exception as e:
-            log(f"Ошибка перезапуска DPI после смены пресета: {e}", "DEBUG")
 
     def schedule_refresh_after_preset_switch(self, delay_ms: int = 0) -> None:
         try:

@@ -6,6 +6,12 @@ from PyQt6.QtWidgets import QWidget
 
 from log import log
 from ui.page_names import PageName
+from ui.window_action_controller import (
+    open_connection_test,
+    open_folder,
+    start_dpi,
+    stop_dpi,
+)
 
 
 def get_eager_page_names(window) -> tuple[PageName, ...]:
@@ -161,10 +167,10 @@ def bind_page_ui_state(window, page: QWidget | None) -> None:
 def connect_lazy_page_signals(window, page_name: PageName, page: QWidget) -> None:
     if page_name == PageName.HOME:
         for button_attr, handler in (
-            ("start_btn", window._request_start_dpi),
-            ("stop_btn", window._request_stop_dpi),
-            ("test_btn", window._request_open_connection_test),
-            ("folder_btn", window._request_open_folder),
+            ("start_btn", lambda target=window: start_dpi(target)),
+            ("stop_btn", lambda target=window: stop_dpi(target)),
+            ("test_btn", lambda target=window: open_connection_test(target)),
+            ("folder_btn", lambda target=window: open_folder(target)),
         ):
             button = getattr(page, button_attr, None)
             signal = getattr(button, "clicked", None)
@@ -217,24 +223,6 @@ def connect_lazy_page_signals(window, page_name: PageName, page: QWidget) -> Non
                 page.navigate_to_dpi_settings,
                 lambda: window.show_page(PageName.DPI_SETTINGS),
             )
-
-    if page_name == PageName.CONTROL:
-        for button_attr, handler in (
-            ("start_btn", window._proxy_start_click),
-            ("stop_winws_btn", window._proxy_stop_click),
-            ("stop_and_exit_btn", window._proxy_stop_and_exit),
-            ("test_btn", window._proxy_test_click),
-            ("folder_btn", window._proxy_folder_click),
-        ):
-            button = getattr(page, button_attr, None)
-            signal = getattr(button, "clicked", None)
-            if signal is not None:
-                connect_signal_once(
-                    window,
-                    f"control.{button_attr}.clicked",
-                    signal,
-                    handler,
-                )
 
     if page_name == PageName.AUTOSTART:
         if hasattr(page, "autostart_enabled"):
@@ -451,23 +439,6 @@ def connect_lazy_page_signals(window, page_name: PageName, page: QWidget) -> Non
             else PageName.ZAPRET2_DIRECT
         )
 
-        for button_attr, handler in (
-            ("start_btn", window._proxy_start_click),
-            ("stop_winws_btn", window._proxy_stop_click),
-            ("stop_and_exit_btn", window._proxy_stop_and_exit),
-            ("test_btn", window._proxy_test_click),
-            ("folder_btn", window._proxy_folder_click),
-        ):
-            button = getattr(page, button_attr, None)
-            signal = getattr(button, "clicked", None)
-            if signal is not None:
-                connect_signal_once(
-                    window,
-                    f"{page_name.name}.{button_attr}.clicked",
-                    signal,
-                    handler,
-                )
-
         if hasattr(page, "navigate_to_presets"):
             connect_signal_once(
                 window,
@@ -532,23 +503,6 @@ def connect_lazy_page_signals(window, page_name: PageName, page: QWidget) -> Non
             )
 
     if page_name == PageName.ZAPRET1_DIRECT_CONTROL:
-        for button_attr, handler in (
-            ("start_btn", window._proxy_start_click),
-            ("stop_winws_btn", window._proxy_stop_click),
-            ("stop_and_exit_btn", window._proxy_stop_and_exit),
-            ("test_btn", window._proxy_test_click),
-            ("folder_btn", window._proxy_folder_click),
-        ):
-            button = getattr(page, button_attr, None)
-            signal = getattr(button, "clicked", None)
-            if signal is not None:
-                connect_signal_once(
-                    window,
-                    f"z1_control.{button_attr}.clicked",
-                    signal,
-                    handler,
-                )
-
         if hasattr(page, "navigate_to_strategies"):
             connect_signal_once(
                 window,

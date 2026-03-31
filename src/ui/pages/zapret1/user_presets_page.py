@@ -55,7 +55,7 @@ try:
         BodyLabel, CaptionLabel, StrongBodyLabel, SubtitleLabel,
         PushButton as FluentPushButton, PrimaryPushButton, ToolButton, PrimaryToolButton,
         MessageBox, InfoBar, MessageBoxBase, TransparentToolButton, TransparentPushButton, FluentIcon,
-        RoundMenu, Action, IndeterminateProgressRing,
+        RoundMenu, Action, IndeterminateProgressRing, ListView,
     )
     _HAS_FLUENT_LABELS = True
 except ImportError:
@@ -76,6 +76,7 @@ except ImportError:
     RoundMenu = None
     Action = None
     IndeterminateProgressRing = None
+    ListView = QListView
     _HAS_FLUENT_LABELS = False
 
 
@@ -448,7 +449,7 @@ class _PresetListModel(QAbstractListModel):
         return None
 
 
-class _LinkedWheelListView(QListView):
+class _LinkedWheelListView(ListView):
     preset_activated = pyqtSignal(str)
     preset_move_requested = pyqtSignal(str, int)
     item_dropped = pyqtSignal(str, str, str, str)
@@ -632,6 +633,10 @@ class _PresetListDelegate(QStyledItemDelegate):
         self._view = view
         self._ui_language = "ru"
         self._action_tooltips: dict[str, str] = {}
+        self._hover_row = -1
+        self._pressed_row = -1
+        self._selected_rows: set[int] = set()
+        self._runtime_busy = False
         self._pending_destructive: Optional[tuple[str, str]] = None
         self._pending_timer = QTimer(self)
         self._pending_timer.setSingleShot(True)
@@ -655,6 +660,42 @@ class _PresetListDelegate(QStyledItemDelegate):
 
     def reset_interaction_state(self):
         self._clear_pending_destructive(update=False)
+        self.setHoverRow(-1)
+        self.setPressedRow(-1)
+        self.setSelectedRows([])
+
+    def setHoverRow(self, row: int) -> None:
+        self._hover_row = int(row)
+
+    def setPressedRow(self, row: int) -> None:
+        self._pressed_row = int(row)
+
+    def setSelectedRows(self, indexes) -> None:
+        rows: set[int] = set()
+        try:
+            for index in indexes or []:
+                row = getattr(index, "row", None)
+                row_value = row() if callable(row) else row
+                if row_value is None:
+                    continue
+                rows.add(int(row_value))
+        except Exception:
+            rows = set()
+
+        self._selected_rows = rows
+        if self._pressed_row in self._selected_rows:
+            self._pressed_row = -1
+
+    def set_runtime_busy(self, busy: bool) -> None:
+        self._runtime_busy = bool(busy)
+
+    def _icon_rect_for_row(self, row_rect: QRect, depth: int) -> QRect:
+        pin_rect = self._pin_rect(row_rect, "preset", depth)
+        if pin_rect is not None:
+            icon_left = pin_rect.left() + self._PIN_COLUMN_WIDTH + self._PIN_TO_ICON_SPACING
+        else:
+            icon_left = row_rect.left() + 12 + depth * 18
+        return QRect(icon_left, row_rect.center().y() - 10, 20, 20)
 
     def sizeHint(self, option: QStyleOptionViewItem, index: QModelIndex) -> QSize:
         kind = index.data(_PresetListModel.KindRole)
@@ -892,11 +933,7 @@ class _PresetListDelegate(QStyledItemDelegate):
             painter.fillRect(row_rect, bg)
 
         pin_rect = self._pin_rect(row_rect, "preset", depth)
-        if pin_rect is not None:
-            icon_left = pin_rect.left() + self._PIN_COLUMN_WIDTH + self._PIN_TO_ICON_SPACING
-        else:
-            icon_left = row_rect.left() + 12 + depth * 18
-        icon_rect = QRect(icon_left, row_rect.center().y() - 10, 20, 20)
+        icon_rect = self._icon_rect_for_row(row_rect, depth)
         icon_name = "fa5s.star" if is_active else "fa5s.file-alt"
         icon_color = _pick_contrast_color(
             _normalize_preset_icon_color(str(index.data(_PresetListModel.IconColorRole) or "")),
@@ -904,7 +941,8 @@ class _PresetListDelegate(QStyledItemDelegate):
             [tokens.accent_hex, tokens.fg],
             minimum_ratio=2.6,
         )
-        _cached_icon(icon_name, icon_color).paint(painter, icon_rect)
+        if not (is_active and self._runtime_busy):
+            _cached_icon(icon_name, icon_color).paint(painter, icon_rect)
 
         action_rects = self._action_rects(row_rect, "preset", is_active, is_builtin)
         right_cursor = action_rects[0][1].left() - 10 if action_rects else row_rect.right() - 12
@@ -1289,39 +1327,14 @@ class Zapret1UserPresetsPage(BasePage):
         self._ui_state_store: Optional[MainWindowStateStore] = None
         self._ui_state_unsubscribe = None
         self._last_ui_state = AppUiState()
-        self._restart_indicator_card = None
-        self._restart_indicator_spinner = None
-        self._restart_indicator_label = None
+        self._active_preset_restart_spinner = None
+        self._pending_restart_file_name = ""
 
     def _tr(self, key: str, default: str, **kwargs) -> str:
         return _tr_text(key, self._ui_language, default, **kwargs)
 
     def _supports_runtime_restart_indicator(self, state: AppUiState) -> bool:
         return str(state.launch_method or "").strip().lower() == "direct_zapret1"
-
-    def _restart_indicator_engine_name(self) -> str:
-        return "winws"
-
-    def _format_runtime_restart_text(self, state: AppUiState) -> str:
-        engine_name = self._restart_indicator_engine_name()
-        busy_text = str(state.dpi_busy_text or "").strip().lower()
-        if "останов" in busy_text:
-            return self._tr(
-                "page.z1_user_presets.restart_indicator.stopping",
-                "Применяем новый пресет: останавливаем {engine_name}, чтобы перезапустить его с новыми параметрами.",
-                engine_name=engine_name,
-            )
-        if "запуск" in busy_text:
-            return self._tr(
-                "page.z1_user_presets.restart_indicator.starting",
-                "Применяем новый пресет: запускаем {engine_name} уже с обновлённой конфигурацией.",
-                engine_name=engine_name,
-            )
-        return self._tr(
-            "page.z1_user_presets.restart_indicator.default",
-            "Применяем новый пресет и перезапускаем {engine_name}. Подождите немного.",
-            engine_name=engine_name,
-        )
 
     def _on_store_changed(self):
         """Central store says the preset list changed."""
@@ -1367,6 +1380,7 @@ class Zapret1UserPresetsPage(BasePage):
         changed = self._presets_model.set_active_preset(active_file_name)
         if changed and hasattr(self, "presets_list"):
             self.presets_list.viewport().update()
+            self._sync_runtime_restart_indicator()
         return changed
 
     def _list_preset_entries_light(self) -> list[dict[str, object]]:
@@ -1613,35 +1627,92 @@ class Zapret1UserPresetsPage(BasePage):
 
     def _on_ui_state_changed(self, state: AppUiState, _changed_fields: frozenset[str]) -> None:
         self._last_ui_state = state
+        if not bool(state.dpi_busy):
+            self._pending_restart_file_name = ""
         self._sync_runtime_restart_indicator()
 
     def _sync_runtime_restart_indicator(self) -> None:
-        card = getattr(self, "_restart_indicator_card", None)
-        label = getattr(self, "_restart_indicator_label", None)
-        spinner = getattr(self, "_restart_indicator_spinner", None)
-        if card is None or label is None:
+        spinner = getattr(self, "_active_preset_restart_spinner", None)
+        delegate = getattr(self, "_presets_delegate", None)
+        list_view = getattr(self, "presets_list", None)
+        if spinner is None or list_view is None or delegate is None:
             return
 
         state = getattr(self, "_last_ui_state", AppUiState())
-        should_show = bool(state.dpi_busy) and self._supports_runtime_restart_indicator(state)
+        immediate_pending = bool(self._pending_restart_file_name) and (not self._is_orchestra_backend())
+        should_show = immediate_pending or (
+            bool(state.dpi_busy) and self._supports_runtime_restart_indicator(state)
+        )
+        try:
+            delegate.set_runtime_busy(should_show)
+        except Exception:
+            pass
+        try:
+            list_view.viewport().update()
+        except Exception:
+            pass
+
         if should_show:
-            label.setText(self._format_runtime_restart_text(state))
-            if spinner is not None:
+            rect = self._get_active_preset_icon_rect(self._pending_restart_file_name or None)
+            if rect is not None and rect.isValid():
+                spinner.setGeometry(rect)
                 try:
                     spinner.show()
+                    spinner.raise_()
                     spinner.start()
                 except Exception:
                     pass
-            card.show()
-            return
+                return
 
-        if spinner is not None:
-            try:
-                spinner.stop()
-                spinner.hide()
-            except Exception:
-                pass
-        card.hide()
+        try:
+            spinner.stop()
+            spinner.hide()
+        except Exception:
+            pass
+
+    def _get_active_preset_icon_rect(self, preferred_file_name: str | None = None) -> QRect | None:
+        list_view = getattr(self, "presets_list", None)
+        model = getattr(self, "_presets_model", None)
+        delegate = getattr(self, "_presets_delegate", None)
+        if list_view is None or model is None or delegate is None:
+            return None
+
+        active_index = None
+        try:
+            for row in range(model.rowCount()):
+                index = model.index(row, 0)
+                if str(index.data(_PresetListModel.KindRole) or "") != "preset":
+                    continue
+                if preferred_file_name and str(index.data(_PresetListModel.FileNameRole) or "") == preferred_file_name:
+                    active_index = index
+                    break
+                if bool(index.data(_PresetListModel.ActiveRole)):
+                    active_index = index
+                    break
+        except Exception:
+            active_index = None
+
+        if active_index is None or not active_index.isValid():
+            return None
+
+        try:
+            row_rect = list_view.visualRect(active_index)
+        except Exception:
+            return None
+        if not row_rect.isValid() or row_rect.isEmpty():
+            return None
+
+        try:
+            depth = int(active_index.data(_PresetListModel.DepthRole) or 0)
+        except Exception:
+            depth = 0
+
+        try:
+            icon_rect = delegate._icon_rect_for_row(row_rect, depth)
+        except Exception:
+            return None
+
+        return QRect(icon_rect)
 
     def _schedule_layout_resync(self, include_delayed: bool = False):
         self._layout_resync_timer.start(0)
@@ -1653,7 +1724,8 @@ class Zapret1UserPresetsPage(BasePage):
         self._update_presets_view_height()
 
     def set_smooth_scroll_enabled(self, enabled: bool) -> None:
-        delegate = getattr(self, "_presets_scroll_delegate", None)
+        list_widget = getattr(self, "presets_list", None)
+        delegate = getattr(list_widget, "scrollDelegate", None)
         if delegate is None:
             return
         try:
@@ -1773,35 +1845,6 @@ class Zapret1UserPresetsPage(BasePage):
         configs_layout.addWidget(get_configs_btn)
         configs_card.add_layout(configs_layout)
         self.add_widget(configs_card)
-
-        restart_card = SettingsCard()
-        restart_card.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed)
-        restart_layout = QHBoxLayout()
-        restart_layout.setSpacing(10)
-
-        restart_spinner = None
-        if IndeterminateProgressRing is not None:
-            restart_spinner = IndeterminateProgressRing(start=False)
-            restart_spinner.setFixedSize(18, 18)
-            restart_spinner.setStrokeWidth(2)
-            restart_spinner.hide()
-            restart_layout.addWidget(restart_spinner, 0, Qt.AlignmentFlag.AlignVCenter)
-
-        restart_label = CaptionLabel(
-            self._tr(
-                "page.z1_user_presets.restart_indicator.default",
-                "Применяем новый пресет и перезапускаем winws. Подождите немного.",
-            )
-        )
-        restart_label.setWordWrap(True)
-        restart_layout.addWidget(restart_label, 1)
-
-        restart_card.add_layout(restart_layout)
-        restart_card.hide()
-        self._restart_indicator_card = restart_card
-        self._restart_indicator_spinner = restart_spinner
-        self._restart_indicator_label = restart_label
-        self.add_widget(restart_card)
 
         # "Restore deleted presets" button
         self._restore_deleted_btn = ActionButton(
@@ -1931,16 +1974,22 @@ class Zapret1UserPresetsPage(BasePage):
         self.presets_list.setFrameShape(QFrame.Shape.NoFrame)
         self.presets_list.verticalScrollBar().setSingleStep(28)
         try:
-            from qfluentwidgets import SmoothScrollDelegate
             from config.reg import get_smooth_scroll_enabled
             smooth_enabled = get_smooth_scroll_enabled()
-            self._presets_scroll_delegate = SmoothScrollDelegate(
-                self.presets_list,
-                useAni=smooth_enabled,
-            )
             self.set_smooth_scroll_enabled(smooth_enabled)
         except Exception:
-            self._presets_scroll_delegate = None
+            pass
+        if IndeterminateProgressRing is not None:
+            spinner = IndeterminateProgressRing(self.presets_list.viewport(), start=False)
+            spinner.setFixedSize(20, 20)
+            spinner.setStrokeWidth(2)
+            spinner.hide()
+            self._active_preset_restart_spinner = spinner
+            try:
+                self.presets_list.verticalScrollBar().valueChanged.connect(self._sync_runtime_restart_indicator)
+                self.presets_list.horizontalScrollBar().valueChanged.connect(self._sync_runtime_restart_indicator)
+            except Exception:
+                pass
         self.add_widget(self.presets_list)
 
         # Make outer page scrolling feel less sluggish on long lists.
@@ -2485,13 +2534,16 @@ class Zapret1UserPresetsPage(BasePage):
 
     def _on_activate_preset(self, name: str):
         try:
+            self._pending_restart_file_name = str(name or "").strip()
             from core.services import get_direct_flow_coordinator
             get_direct_flow_coordinator().select_preset_file_name("direct_zapret1", name)
             self._get_preset_store().notify_preset_switched(name)
             display_name = self._resolve_display_name(name)
             log(f"Активирован пресет '{display_name}'", "INFO")
             self._apply_active_preset_marker()
+            self._sync_runtime_restart_indicator()
         except Exception as e:
+            self._pending_restart_file_name = ""
             log(f"Ошибка активации пресета: {e}", "ERROR")
             InfoBar.warning(
                 title=self._tr("common.error.title", "Ошибка"),

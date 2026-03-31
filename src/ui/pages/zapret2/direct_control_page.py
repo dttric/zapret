@@ -21,6 +21,13 @@ from ui.compat_widgets import ActionButton, PrimaryActionButton, PulsingDot, Res
 from ui.main_window_state import AppUiState, MainWindowStateStore
 from ui.theme import get_theme_tokens
 from ui.text_catalog import tr as tr_catalog
+from ui.window_action_controller import (
+    open_connection_test,
+    open_folder,
+    start_dpi,
+    stop_and_exit,
+    stop_dpi,
+)
 
 try:
     from qfluentwidgets import (
@@ -266,6 +273,21 @@ class Zapret2DirectControlPage(BasePage):
         _log_startup_z2_control_metric("__init__.stop_button_text", (_time.perf_counter() - _t_stop_text) * 1000)
         _log_startup_z2_control_metric("__init__.total", (_time.perf_counter() - _t_init) * 1000)
 
+    def _start_dpi(self) -> None:
+        start_dpi(self)
+
+    def _stop_dpi(self) -> None:
+        stop_dpi(self)
+
+    def _stop_and_exit(self) -> None:
+        stop_and_exit(self)
+
+    def _open_connection_test(self) -> None:
+        open_connection_test(self)
+
+    def _open_folder(self) -> None:
+        open_folder(self)
+
     def showEvent(self, a0):
         _t_show = _time.perf_counter()
         super().showEvent(a0)
@@ -368,13 +390,16 @@ class Zapret2DirectControlPage(BasePage):
         buttons_layout.setSpacing(12)
 
         self.start_btn = BigActionButton(tr_catalog("page.z2_control.button.start", language=self._ui_language, default="Запустить Zapret"), "fa5s.play", accent=True)
+        self.start_btn.clicked.connect(self._start_dpi)
         buttons_layout.addWidget(self.start_btn)
 
         self.stop_winws_btn = StopButton(tr_catalog("page.z2_control.button.stop_only_winws", language=self._ui_language, default="Остановить только winws.exe"), "fa5s.stop")
+        self.stop_winws_btn.clicked.connect(self._stop_dpi)
         self.stop_winws_btn.setVisible(False)
         buttons_layout.addWidget(self.stop_winws_btn)
 
         self.stop_and_exit_btn = StopButton(tr_catalog("page.z2_control.button.stop_and_exit", language=self._ui_language, default="Остановить и закрыть программу"), "fa5s.power-off")
+        self.stop_and_exit_btn.clicked.connect(self._stop_and_exit)
         self.stop_and_exit_btn.setVisible(False)
         buttons_layout.addWidget(self.stop_and_exit_btn)
 
@@ -689,8 +714,10 @@ class Zapret2DirectControlPage(BasePage):
         extra_layout = QHBoxLayout()
         extra_layout.setSpacing(8)
         self.test_btn = ActionButton(tr_catalog("page.z2_control.button.connection_test", language=self._ui_language, default="Тест соединения"), "fa5s.wifi")
+        self.test_btn.clicked.connect(self._open_connection_test)
         extra_layout.addWidget(self.test_btn)
         self.folder_btn = ActionButton(tr_catalog("page.z2_control.button.open_folder", language=self._ui_language, default="Открыть папку"), "fa5s.folder-open")
+        self.folder_btn.clicked.connect(self._open_folder)
         extra_layout.addWidget(self.folder_btn)
         self.docs_btn = ActionButton(tr_catalog("page.z2_control.button.documentation", language=self._ui_language, default="Документация"), "fa5s.book")
         self.docs_btn.clicked.connect(self._open_docs)

@@ -24,6 +24,13 @@ from ui.compat_widgets import SettingsRow, PulsingDot
 from ui.compat_widgets import SettingsCard, ActionButton, PrimaryActionButton, ResetActionButton, StatusIndicator, set_tooltip
 from ui.main_window_state import AppUiState, MainWindowStateStore
 from ui.text_catalog import tr as tr_catalog
+from ui.window_action_controller import (
+    open_connection_test,
+    open_folder,
+    start_dpi,
+    stop_and_exit,
+    stop_dpi,
+)
 
 try:
     from qfluentwidgets import themeColor, isDarkTheme
@@ -67,6 +74,21 @@ class ControlPage(BasePage):
         
         self._build_ui()
         self._update_stop_winws_button_text()
+
+    def _start_dpi(self) -> None:
+        start_dpi(self)
+
+    def _stop_dpi(self) -> None:
+        stop_dpi(self)
+
+    def _stop_and_exit(self) -> None:
+        stop_and_exit(self)
+
+    def _open_connection_test(self) -> None:
+        open_connection_test(self)
+
+    def _open_folder(self) -> None:
+        open_folder(self)
 
     def showEvent(self, event):  # noqa: N802 (Qt naming)
         super().showEvent(event)
@@ -151,6 +173,7 @@ class ControlPage(BasePage):
             "fa5s.play",
             accent=True,
         )
+        self.start_btn.clicked.connect(self._start_dpi)
         buttons_layout.addWidget(self.start_btn)
         
         # Кнопка остановки только winws.exe / winws2.exe (в зависимости от режима)
@@ -158,6 +181,7 @@ class ControlPage(BasePage):
             tr_catalog("page.control.button.stop_only_winws", language=self._ui_language, default="Остановить только winws.exe"),
             "fa5s.stop",
         )
+        self.stop_winws_btn.clicked.connect(self._stop_dpi)
         self.stop_winws_btn.setVisible(False)
         buttons_layout.addWidget(self.stop_winws_btn)
         
@@ -166,6 +190,7 @@ class ControlPage(BasePage):
             tr_catalog("page.control.button.stop_and_exit", language=self._ui_language, default="Остановить и закрыть программу"),
             "fa5s.power-off",
         )
+        self.stop_and_exit_btn.clicked.connect(self._stop_and_exit)
         self.stop_and_exit_btn.setVisible(False)
         buttons_layout.addWidget(self.stop_and_exit_btn)
         
@@ -318,12 +343,14 @@ class ControlPage(BasePage):
             tr_catalog("page.control.button.connection_test", language=self._ui_language, default="Тест соединения"),
             "fa5s.wifi",
         )
+        self.test_btn.clicked.connect(self._open_connection_test)
         extra_layout.addWidget(self.test_btn)
         
         self.folder_btn = ActionButton(
             tr_catalog("page.control.button.open_folder", language=self._ui_language, default="Открыть папку"),
             "fa5s.folder-open",
         )
+        self.folder_btn.clicked.connect(self._open_folder)
         extra_layout.addWidget(self.folder_btn)
         
         extra_layout.addStretch()

@@ -189,6 +189,16 @@ class ConfigFileWatcher:
         self._thread.start()
         log(f"ConfigFileWatcher started for: {self._file_path}", "DEBUG")
 
+    def update_file_path(self, file_path: str) -> None:
+        """Switch watched file without restarting watcher thread."""
+        self._file_path = str(file_path or "")
+        self._last_mtime = None
+        try:
+            if self._file_path and os.path.exists(self._file_path):
+                self._last_mtime = os.path.getmtime(self._file_path)
+        except Exception:
+            self._last_mtime = None
+
     def stop(self):
         """Stop watching the file"""
         if not self._running:
@@ -255,6 +265,7 @@ class StrategyRunnerV2(StrategyRunnerBase):
         self._preset_file_path: Optional[str] = None
         # Human-readable last start error (for UI/status).
         self.last_error: Optional[str] = None
+        self._validation_cache: dict[tuple[str, int, int], tuple[bool, str]] = {}
 
         log(f"StrategyRunnerV2 initialized with hot-reload support", "INFO")
 
@@ -312,9 +323,22 @@ class StrategyRunnerV2(StrategyRunnerBase):
         if not os.path.exists(p):
             return False, f"Preset файл не найден: {p}"
 
+        cache_key = None
+        try:
+            stat = os.stat(p)
+            cache_key = (os.path.normcase(p), int(stat.st_mtime_ns), int(stat.st_size))
+            cached = self._validation_cache.get(cache_key)
+            if cached is not None:
+                return cached
+        except Exception:
+            cache_key = None
+
         missing = self._collect_missing_preset_references(p)
         if not missing:
-            return True, ""
+            result = (True, "")
+            if cache_key is not None:
+                self._validation_cache[cache_key] = result
+            return result
 
         max_show = 15
         shown = missing[:max_show]
@@ -335,7 +359,16 @@ class StrategyRunnerV2(StrategyRunnerBase):
         if hidden > 0:
             lines.append(f"... и еще {hidden} файл(ов)")
 
-        return False, "\n".join(lines)
+        result = (False, "\n".join(lines))
+        if cache_key is not None:
+            self._validation_cache[cache_key] = result
+            if len(self._validation_cache) > 128:
+                try:
+                    oldest_key = next(iter(self._validation_cache))
+                    self._validation_cache.pop(oldest_key, None)
+                except Exception:
+                    pass
+        return result
 
     def _collect_missing_preset_references(self, preset_path: str) -> list[tuple[str, str]]:
         """Returns list of (ref, expected_abs_path) for missing referenced files."""
@@ -655,6 +688,39 @@ class StrategyRunnerV2(StrategyRunnerBase):
             self.current_strategy_args = None
             return False
 
+    def switch_preset_file_fast(self, preset_path: str, strategy_name: str = "Preset") -> bool:
+        """Fast path for switching running direct preset using lightweight stop/start."""
+        if not os.path.exists(preset_path):
+            log(f"Fast switch preset file not found: {preset_path}", "ERROR")
+            self._set_last_error(f"Preset файл не найден: {preset_path}")
+            return False
+
+        ok, report = self.validate_preset_file(preset_path)
+        if not ok:
+            for line in (report or "").splitlines():
+                if line.strip():
+                    log(line, "ERROR")
+            try:
+                self._set_last_error((report or "").splitlines()[0].strip())
+            except Exception:
+                self._set_last_error("Preset содержит ссылки на отсутствующие файлы")
+            return False
+
+        self._set_last_error(None)
+        self._stop_config_watcher()
+
+        if self.running_process and self.is_running():
+            self._stop_process_only()
+            time.sleep(0.15)
+
+        self._preset_file_path = preset_path
+        self.current_launch_label = strategy_name
+
+        success = self._start_from_preset()
+        if success:
+            self._start_config_watcher()
+        return success
+
     def start_from_preset_file(
         self,
         preset_path: str,
@@ -898,18 +964,22 @@ class StrategyRunnerV2(StrategyRunnerBase):
             return None
 
     def _start_config_watcher(self):
-        """Start watching the preset file for changes"""
-        if self._config_watcher:
-            self._stop_config_watcher()
+        """Start watching the preset file for changes or retarget existing watcher."""
+        if not self._preset_file_path or not os.path.exists(self._preset_file_path):
+            return
 
-        if self._preset_file_path and os.path.exists(self._preset_file_path):
-            self._config_watcher = ConfigFileWatcher(
-                self._preset_file_path,
-                self._on_config_changed,
-                interval=1.0
-            )
-            self._config_watcher.start()
-            log(f"Config watcher started for: {self._preset_file_path}", "DEBUG")
+        if self._config_watcher:
+            self._config_watcher.update_file_path(self._preset_file_path)
+            log(f"Config watcher retargeted to: {self._preset_file_path}", "DEBUG")
+            return
+
+        self._config_watcher = ConfigFileWatcher(
+            self._preset_file_path,
+            self._on_config_changed,
+            interval=1.0
+        )
+        self._config_watcher.start()
+        log(f"Config watcher started for: {self._preset_file_path}", "DEBUG")
 
     def _stop_config_watcher(self):
         """Stop watching the preset file"""
