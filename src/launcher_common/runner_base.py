@@ -92,7 +92,7 @@ class StrategyRunnerBase(ABC):
         """
         self.winws_exe = os.path.abspath(winws_exe_path)
         self.running_process: Optional[subprocess.Popen] = None
-        self.current_strategy_name: Optional[str] = None
+        self.current_launch_label: Optional[str] = None
         self.current_strategy_args: Optional[List[str]] = None
 
         # Verify exe exists
@@ -236,7 +236,7 @@ class StrategyRunnerBase(ABC):
 
             if self.running_process and self.is_running():
                 pid = self.running_process.pid
-                strategy_name = self.current_strategy_name or "unknown"
+                strategy_name = self.current_launch_label or "unknown"
 
                 log(f"Stopping strategy '{strategy_name}' (PID: {pid})", "INFO")
 
@@ -261,7 +261,7 @@ class StrategyRunnerBase(ABC):
 
             # Clear state
             self.running_process = None
-            self.current_strategy_name = None
+            self.current_launch_label = None
             self.current_strategy_args = None
 
             return success
@@ -301,7 +301,7 @@ class StrategyRunnerBase(ABC):
         poll_result = self.running_process.poll()
         is_running = poll_result is None
 
-        if not is_running and self.current_strategy_name:
+        if not is_running and self.current_launch_label:
             log(f"Strategy process exited (code: {poll_result})", "WARNING")
 
         return is_running
@@ -312,7 +312,7 @@ class StrategyRunnerBase(ABC):
             return {}
 
         return {
-            'name': self.current_strategy_name,
+            'name': self.current_launch_label,
             'pid': self.running_process.pid if self.running_process else None,
             'args_count': len(self.current_strategy_args) if self.current_strategy_args else 0
         }

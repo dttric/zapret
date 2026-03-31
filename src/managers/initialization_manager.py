@@ -170,9 +170,25 @@ class InitializationManager:
                         log("direct_zapret1: не удалось подготовить выбранный source-пресет", "ERROR")
 
                 if method == "orchestra":
-                    initial_name = getattr(self.app, "current_strategy_name", None) or "Оркестр"
+                    initial_name = ""
+                    store = getattr(self.app, "ui_state_store", None)
+                    if store is not None:
+                        try:
+                            initial_name = store.snapshot().current_strategy_summary or ""
+                        except Exception:
+                            initial_name = ""
+                    if not initial_name:
+                        initial_name = "Оркестр"
                 else:
-                    initial_name = getattr(self.app, "current_strategy_name", None) or "Прямой запуск"
+                    initial_name = ""
+                    store = getattr(self.app, "ui_state_store", None)
+                    if store is not None:
+                        try:
+                            initial_name = store.snapshot().current_strategy_summary or ""
+                        except Exception:
+                            initial_name = ""
+                    if not initial_name:
+                        initial_name = "Прямой запуск"
 
                 if hasattr(self.app, "update_current_strategy_display"):
                     self.app.update_current_strategy_display(initial_name)
@@ -643,9 +659,10 @@ class InitializationManager:
         try:
             from strategy_menu import get_strategy_launch_method
 
-            # Для direct_zapret2 запускаем post-init почти сразу,
-            # чтобы сократить время до автозапуска пресета.
-            if get_strategy_launch_method() == "direct_zapret2":
+            # Для direct-режимов запускаем post-init почти сразу:
+            # искусственная пауза в 500ms только раздувает Startup PostInitDone
+            # и делает старт окна визуально более "вязким", хотя компоненты уже готовы.
+            if get_strategy_launch_method() in ("direct_zapret2", "direct_zapret1"):
                 return 75
         except Exception:
             pass
@@ -861,7 +878,8 @@ class InitializationManager:
             log(f"Автозапуск direct_zapret2 из выбранного source-пресета: {preset_path}", "INFO")
 
             # 4. Запускаем через dpi_controller
-            self.app.current_strategy_name = profile.display_name
+            if hasattr(self.app, "update_current_strategy_display"):
+                self.app.update_current_strategy_display(profile.display_name)
             self.app.dpi_controller.start_dpi_async(
                 selected_mode=selected_mode, launch_method="direct_zapret2"
             )

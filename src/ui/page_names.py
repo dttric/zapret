@@ -38,9 +38,7 @@ class PageName(Enum):
     ZAPRET1_STRATEGY_DETAIL = auto() # Zapret 1 Direct: детали стратегии для категории
     ZAPRET2_STRATEGY_DETAIL = auto()         # Детальный просмотр стратегии
     ZAPRET2_PRESET_DETAIL = auto()   # Zapret 2 Direct: подстраница пресета
-    ZAPRET2_PRESET_FOLDERS = auto()  # Zapret 2 Direct: подстраница папок пресетов
     ZAPRET1_PRESET_DETAIL = auto()   # Zapret 1 Direct: подстраница пресета
-    ZAPRET1_PRESET_FOLDERS = auto()  # Zapret 1 Direct: подстраница папок пресетов
     HOSTLIST = auto()                # Листы (Hostlist + IPset)
     IPSET = auto()                   # Legacy alias -> Листы
     BLOBS = auto()                   # Блобы
@@ -206,13 +204,11 @@ STRATEGY_PAGES: set[PageName] = {
     PageName.ZAPRET2_ORCHESTRA_USER_PRESETS,
     PageName.ZAPRET2_ORCHESTRA_STRATEGY_DETAIL,
     PageName.ZAPRET2_PRESET_DETAIL,
-    PageName.ZAPRET2_PRESET_FOLDERS,
 
     PageName.ZAPRET1_DIRECT_CONTROL,
     PageName.ZAPRET1_DIRECT,
     PageName.ZAPRET1_USER_PRESETS,
     PageName.ZAPRET1_STRATEGY_DETAIL,
     PageName.ZAPRET1_PRESET_DETAIL,
-    PageName.ZAPRET1_PRESET_FOLDERS,
     PageName.ORCHESTRA,
 }

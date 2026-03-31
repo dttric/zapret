@@ -3,6 +3,7 @@
 
 import os
 import re
+import time as _time
 import webbrowser
 
 from PyQt6.QtCore import Qt, QObject, pyqtSignal, QThread
@@ -132,6 +133,34 @@ _LIST_FILE_ARG_RE = re.compile(r"--(?:hostlist|ipset|hostlist-exclude|ipset-excl
 _HOSTLIST_DISPLAY_RE = re.compile(r"--(?:hostlist|hostlist-exclude)=([^\s]+)")
 
 
+def _log_startup_z2_control_metric(section: str, elapsed_ms: float) -> None:
+    try:
+        rounded = int(round(float(elapsed_ms)))
+    except Exception:
+        rounded = 0
+    from log import log as _log
+
+    _log(f"⏱ Startup UI Section: ZAPRET2_DIRECT_CONTROL {section} {rounded}ms", "⏱ STARTUP")
+
+
+class _AdvancedSettingsLoadWorker(QThread):
+    loaded = pyqtSignal(int, dict)
+
+    def __init__(self, request_id: int, parent=None):
+        super().__init__(parent)
+        self._request_id = int(request_id)
+
+    def run(self) -> None:
+        state: dict = {}
+        try:
+            from core.presets.direct_facade import DirectPresetFacade
+
+            state = DirectPresetFacade.from_launch_method("direct_zapret2").get_advanced_settings_state() or {}
+        except Exception:
+            state = {}
+        self.loaded.emit(self._request_id, state)
+
+
 class BigActionButton(PrimaryActionButton):
     """Большая кнопка запуска (акцентная, PrimaryPushButton)."""
 
@@ -155,6 +184,8 @@ class Zapret2DirectControlPage(BasePage):
     direct_mode_changed = pyqtSignal(str)     # "basic" | "advanced"
 
     def __init__(self, parent=None):
+        _t_init = _time.perf_counter()
+        _t_base = _time.perf_counter()
         super().__init__(
             "Управление",
             "Настройка и запуск Zapret 2. Выберите готовые пресеты-конфиги (как раньше .bat), "
@@ -163,29 +194,62 @@ class Zapret2DirectControlPage(BasePage):
             title_key="page.z2_control.title",
             subtitle_key="page.z2_control.subtitle",
         )
+        _log_startup_z2_control_metric("__init__.base_page", (_time.perf_counter() - _t_base) * 1000)
 
         self._ui_state_store = None
         self._ui_state_unsubscribe = None
+        self._startup_showevent_profile_logged = False
+        self._advanced_settings_worker = None
+        self._advanced_settings_request_id = 0
+        self._advanced_settings_dirty = True
+        _t_build = _time.perf_counter()
         self._build_ui()
+        _log_startup_z2_control_metric("__init__.build_ui", (_time.perf_counter() - _t_build) * 1000)
+        _t_stop_text = _time.perf_counter()
         self._update_stop_winws_button_text()
+        _log_startup_z2_control_metric("__init__.stop_button_text", (_time.perf_counter() - _t_stop_text) * 1000)
+        _log_startup_z2_control_metric("__init__.total", (_time.perf_counter() - _t_init) * 1000)
 
     def showEvent(self, a0):
+        _t_show = _time.perf_counter()
         super().showEvent(a0)
+        _t_sync = _time.perf_counter()
         try:
             self._sync_program_settings()
         except Exception:
             pass
-        try:
-            self._load_advanced_settings()
-        except Exception:
-            pass
+        _log_startup_z2_control_metric("showEvent.sync_program_settings", (_time.perf_counter() - _t_sync) * 1000)
+
+        _t_adv = _time.perf_counter()
+        self._schedule_advanced_settings_reload()
+        _log_startup_z2_control_metric("showEvent.load_advanced_settings", (_time.perf_counter() - _t_adv) * 1000)
+
+        _t_mode = _time.perf_counter()
         try:
             self._refresh_direct_mode_label()
         except Exception:
             pass
+        _log_startup_z2_control_metric("showEvent.refresh_mode_label", (_time.perf_counter() - _t_mode) * 1000)
+        if not self._startup_showevent_profile_logged:
+            self._startup_showevent_profile_logged = True
+            _log_startup_z2_control_metric("showEvent.total", (_time.perf_counter() - _t_show) * 1000)
+
+    def _prewarm_direct_payload(self) -> None:
+        try:
+            from core.presets.direct_facade import DirectPresetFacade
+
+            DirectPresetFacade.from_launch_method("direct_zapret2").get_basic_ui_payload()
+        except Exception:
+            pass
+
+    def _open_direct_launch_page(self) -> None:
+        self._prewarm_direct_payload()
+        self.navigate_to_direct_launch.emit()
 
     def _build_ui(self):
+        _t_total = _time.perf_counter()
         # Статус работы
+        _t_status = _time.perf_counter()
         self.status_section_label = self.add_section_title(
             return_widget=True,
             text_key="page.z2_control.section.status",
@@ -217,10 +281,12 @@ class Zapret2DirectControlPage(BasePage):
         status_layout.addLayout(status_text, 1)
         status_card.add_layout(status_layout)
         self.add_widget(status_card)
+        _log_startup_z2_control_metric("_build_ui.status_card", (_time.perf_counter() - _t_status) * 1000)
 
         self.add_spacing(16)
 
         # Управление
+        _t_control = _time.perf_counter()
         self.control_section_label = self.add_section_title(
             return_widget=True,
             text_key="page.z2_control.section.management",
@@ -259,10 +325,12 @@ class Zapret2DirectControlPage(BasePage):
         buttons_layout.addStretch()
         control_card.add_layout(buttons_layout)
         self.add_widget(control_card)
+        _log_startup_z2_control_metric("_build_ui.control_card", (_time.perf_counter() - _t_control) * 1000)
 
         self.add_spacing(16)
 
         # ── Запуск: две вертикальные WinUI-карточки ──────────────────────
+        _t_preset = _time.perf_counter()
         self.preset_section_label = self.add_section_title(
             return_widget=True,
             text_key="page.z2_control.section.preset_switch",
@@ -303,10 +371,12 @@ class Zapret2DirectControlPage(BasePage):
         preset_row.addWidget(presets_btn, 0, Qt.AlignmentFlag.AlignVCenter)
         self.presets_btn = presets_btn
         self.add_widget(preset_card)
+        _log_startup_z2_control_metric("_build_ui.preset_card", (_time.perf_counter() - _t_preset) * 1000)
 
         self.add_spacing(8)
 
         # ── Запуск: две вертикальные WinUI-карточки ──────────────────────
+        _t_direct = _time.perf_counter()
         self.direct_section_label = self.add_section_title(
             return_widget=True,
             text_key="page.z2_control.section.direct_tuning",
@@ -338,7 +408,7 @@ class Zapret2DirectControlPage(BasePage):
         open_btn = PushButton()
         open_btn.setText(tr_catalog("page.z2_control.button.open", language=self._ui_language, default="Открыть"))
         open_btn.setIcon(FluentIcon.PLAY)
-        open_btn.clicked.connect(self.navigate_to_direct_launch.emit)
+        open_btn.clicked.connect(self._open_direct_launch_page)
         mode_btn = TransparentPushButton()
         mode_btn.setText(tr_catalog("page.z2_control.button.change_mode", language=self._ui_language, default="Изменить режим"))
         mode_btn.clicked.connect(self._open_direct_mode_dialog)
@@ -348,12 +418,14 @@ class Zapret2DirectControlPage(BasePage):
         self.direct_mode_btn = mode_btn
         direct_row.addLayout(direct_btns)
         self.add_widget(direct_card)
+        _log_startup_z2_control_metric("_build_ui.direct_card", (_time.perf_counter() - _t_direct) * 1000)
 
         self.add_spacing(8)
 
         self.add_spacing(16)
 
         # Настройки программы
+        _t_program = _time.perf_counter()
         self.program_settings_section_label = self.add_section_title(
             return_widget=True,
             text_key="page.z2_control.section.program_settings",
@@ -361,6 +433,7 @@ class Zapret2DirectControlPage(BasePage):
         program_settings_card = SettingsCard()
         self.program_settings_card = program_settings_card
 
+        _t_program_toggles = _time.perf_counter()
         try:
             from ui.pages.dpi_settings_page import Win11ToggleSwitch
         except Exception:
@@ -427,6 +500,7 @@ class Zapret2DirectControlPage(BasePage):
             self.max_block_toggle.toggled.connect(self._on_max_blocker_toggled)
         max_row.set_control(self.max_block_toggle)
         program_settings_card.add_widget(max_row)
+        _log_startup_z2_control_metric("_build_ui.toggle_setup", (_time.perf_counter() - _t_program_toggles) * 1000)
 
         reset_row = SettingsRow(
             "fa5s.undo",
@@ -447,10 +521,12 @@ class Zapret2DirectControlPage(BasePage):
         program_settings_card.add_widget(reset_row)
 
         self.add_widget(program_settings_card)
+        _log_startup_z2_control_metric("_build_ui.program_settings_rows", (_time.perf_counter() - _t_program) * 1000)
 
         self.add_spacing(16)
 
         # ДОПОЛНИТЕЛЬНЫЕ НАСТРОЙКИ (direct_zapret2)
+        _t_advanced = _time.perf_counter()
         self.advanced_settings_section_label = self.add_section_title(
             return_widget=True,
             text_key="page.z2_control.section.advanced_settings",
@@ -513,8 +589,10 @@ class Zapret2DirectControlPage(BasePage):
 
         self.advanced_card.add_layout(advanced_layout)
         self.add_widget(self.advanced_card)
+        _log_startup_z2_control_metric("_build_ui.advanced_settings_block", (_time.perf_counter() - _t_advanced) * 1000)
 
         # Card C — Блобы (ссылка на страницу)
+        _t_blobs = _time.perf_counter()
         blobs_card = CardWidget()
         self.blobs_card = blobs_card
         blobs_card.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
@@ -542,8 +620,10 @@ class Zapret2DirectControlPage(BasePage):
         self.blobs_open_btn = blobs_open_btn
         blobs_row.addWidget(blobs_open_btn, 0, Qt.AlignmentFlag.AlignVCenter)
         self.add_widget(blobs_card)
+        _log_startup_z2_control_metric("_build_ui.blobs_card", (_time.perf_counter() - _t_blobs) * 1000)
         
         # Дополнительные действия
+        _t_extra = _time.perf_counter()
         self.extra_section_label = self.add_section_title(
             return_widget=True,
             text_key="page.z2_control.section.additional",
@@ -562,37 +642,62 @@ class Zapret2DirectControlPage(BasePage):
         extra_layout.addStretch()
         extra_card.add_layout(extra_layout)
         self.add_widget(extra_card)
+        _log_startup_z2_control_metric("_build_ui.extra_actions", (_time.perf_counter() - _t_extra) * 1000)
+        _log_startup_z2_control_metric("_build_ui.total", (_time.perf_counter() - _t_total) * 1000)
 
-    def _load_advanced_settings(self) -> None:
-        """Sync advanced toggles from the current direct preset state."""
+    def _apply_advanced_settings_state(self, state: dict) -> None:
         try:
-            from core.presets.direct_facade import DirectPresetFacade
-
-            facade = DirectPresetFacade.from_launch_method("direct_zapret2")
-
-            try:
-                from discord.discord_restart import get_discord_restart_setting
-
-                toggle = getattr(self, "discord_restart_toggle", None)
-                set_checked = getattr(toggle, "setChecked", None)
-                if callable(set_checked):
-                    set_checked(get_discord_restart_setting(default=True), block_signals=True)
-            except Exception:
-                pass
-
-            wssize_toggle = getattr(self, "wssize_toggle", None)
-            set_checked = getattr(wssize_toggle, "setChecked", None)
+            toggle = getattr(self, "discord_restart_toggle", None)
+            set_checked = getattr(toggle, "setChecked", None)
             if callable(set_checked):
-                set_checked(bool(facade.get_wssize_enabled()), block_signals=True)
-
-            debug_toggle = getattr(self, "debug_log_toggle", None)
-            set_checked = getattr(debug_toggle, "setChecked", None)
-            if callable(set_checked):
-                set_checked(bool(facade.get_debug_log_enabled()), block_signals=True)
+                set_checked(bool(state.get("discord_restart", True)), block_signals=True)
         except Exception:
             pass
 
+        try:
+            wssize_toggle = getattr(self, "wssize_toggle", None)
+            set_checked = getattr(wssize_toggle, "setChecked", None)
+            if callable(set_checked):
+                set_checked(bool(state.get("wssize_enabled", False)), block_signals=True)
+        except Exception:
+            pass
+
+        try:
+            debug_toggle = getattr(self, "debug_log_toggle", None)
+            set_checked = getattr(debug_toggle, "setChecked", None)
+            if callable(set_checked):
+                set_checked(bool(state.get("debug_log_enabled", False)), block_signals=True)
+        except Exception:
+            pass
+
+    def _schedule_advanced_settings_reload(self, *, force: bool = False) -> None:
+        if not force and not self._advanced_settings_dirty:
+            return
+        worker = getattr(self, "_advanced_settings_worker", None)
+        if worker is not None:
+            try:
+                if worker.isRunning():
+                    return
+            except Exception:
+                pass
+
+        self._advanced_settings_request_id += 1
+        request_id = self._advanced_settings_request_id
+        worker = _AdvancedSettingsLoadWorker(request_id, self)
+        self._advanced_settings_worker = worker
+        worker.loaded.connect(self._on_advanced_settings_loaded)
+        worker.finished.connect(worker.deleteLater)
+        worker.start()
+
+    def _on_advanced_settings_loaded(self, request_id: int, state: dict) -> None:
+        if int(request_id) != int(self._advanced_settings_request_id):
+            return
+        self._advanced_settings_dirty = False
+        self._apply_advanced_settings_state(state if isinstance(state, dict) else {})
+
     def _on_discord_restart_changed(self, enabled: bool) -> None:
+        self._advanced_settings_request_id += 1
+        self._advanced_settings_dirty = False
         try:
             from discord.discord_restart import set_discord_restart_setting
 
@@ -601,6 +706,8 @@ class Zapret2DirectControlPage(BasePage):
             pass
 
     def _on_wssize_toggled(self, enabled: bool) -> None:
+        self._advanced_settings_request_id += 1
+        self._advanced_settings_dirty = False
         try:
             from core.presets.direct_facade import DirectPresetFacade
 
@@ -609,6 +716,8 @@ class Zapret2DirectControlPage(BasePage):
             pass
 
     def _on_debug_log_toggled(self, enabled: bool) -> None:
+        self._advanced_settings_request_id += 1
+        self._advanced_settings_dirty = False
         try:
             from core.presets.direct_facade import DirectPresetFacade
 
@@ -994,7 +1103,8 @@ class Zapret2DirectControlPage(BasePage):
         if "mode_revision" in changed_fields:
             self._sync_direct_launch_mode_from_settings()
         if "preset_revision" in changed_fields:
-            self._load_advanced_settings()
+            self._advanced_settings_dirty = True
+            self._schedule_advanced_settings_reload(force=True)
         self.set_loading(state.dpi_busy, state.dpi_busy_text)
         self.update_status(state.dpi_running)
         self.update_strategy(state.current_strategy_summary or "")

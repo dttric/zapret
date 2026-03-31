@@ -434,10 +434,6 @@ class AutostartPage(BasePage):
                     strategy_name = store.snapshot().current_strategy_summary
                     if strategy_name:
                         self.strategy_name = strategy_name
-                else:
-                    self.strategy_name = getattr(self._app_instance, "current_strategy_name", None)
-                    if self.strategy_name == "Автостарт DPI отключен":
-                        self.strategy_name = None
                 self.current_strategy_label.setText(
                     self.strategy_name
                     or self._tr("page.autostart.strategy.not_selected", "Не выбрана")

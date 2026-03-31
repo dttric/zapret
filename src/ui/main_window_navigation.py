@@ -8,6 +8,13 @@ def refresh_page_if_possible(window, page_name: PageName) -> None:
     page = window._ensure_page(page_name)
     if page is None:
         return
+    refresh_view = getattr(page, "refresh_presets_view_if_possible", None)
+    if callable(refresh_view):
+        try:
+            refresh_view()
+            return
+        except Exception:
+            pass
     loader = getattr(page, "_load_presets", None)
     if callable(loader):
         try:
@@ -68,16 +75,6 @@ def open_zapret1_preset_detail(window, preset_name: str) -> None:
     if hasattr(page, "set_preset_file_name"):
         page.set_preset_file_name(preset_name)
     window.show_page(PageName.ZAPRET1_PRESET_DETAIL)
-
-
-def open_zapret2_preset_folders(window) -> None:
-    window._ensure_page(PageName.ZAPRET2_PRESET_FOLDERS)
-    window.show_page(PageName.ZAPRET2_PRESET_FOLDERS)
-
-
-def open_zapret1_preset_folders(window) -> None:
-    window._ensure_page(PageName.ZAPRET1_PRESET_FOLDERS)
-    window.show_page(PageName.ZAPRET1_PRESET_FOLDERS)
 
 
 def redirect_to_strategies_page_for_method(window, method: str) -> None:

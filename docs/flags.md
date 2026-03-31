@@ -19,7 +19,7 @@ start "" /b "%EXE%\winws.exe" ^
 --filter-tcp=443 --hostlist="other.txt" --hostlist-exclude="faceinsta.txt" --dpi-desync=fake,multidisorder --dpi-desync-split-pos=1,midsld --dpi-desync-repeats=6 --dpi-desync-fooling=badseq --new ^
 --filter-udp=443 --hostlist="youtube.txt" --dpi-desync=fake --dpi-desync-repeats=11 --dpi-desync-fake-quic="quic_initial_www_google_com.bin" --new ^
 --filter-udp=443 --dpi-desync=fake --dpi-desync-repeats=11 --new ^
---filter-udp=50000-50099 --filter-l7=discord,stun --dpi-desync=fake --dpi-desync-autottl --dup=2 --dup-autottl --dup-cutoff=n3 --new ^
+--filter-udp=50000-50099 --filter-l7=stun,discord --dpi-desync=fake --dpi-desync-autottl --dup=2 --dup-autottl --dup-cutoff=n3 --new ^
 ```
 
 Разберём в цветах:

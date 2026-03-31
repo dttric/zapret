@@ -2,9 +2,11 @@ from __future__ import annotations
 
 from dataclasses import dataclass, replace
 from pathlib import Path
+import time as _time
 from typing import Any
 
 from core.paths import AppPaths
+from log import log
 
 from .common.preset_editor import replace_profile_action_lines, replace_profile_selector_line, split_profile_for_target
 from .common.projector import build_target_views
@@ -35,6 +37,7 @@ class BasicUiPayload:
     target_views: tuple
     target_items: dict[str, Any]
     strategy_selections: dict[str, str]
+    strategy_names_by_target: dict[str, dict[str, str]]
     filter_modes: dict[str, str]
 
 
@@ -46,6 +49,18 @@ class TargetDetailPayload:
     strategy_entries: dict[str, dict[str, str]]
     raw_args_text: str
     filter_mode: str
+
+
+def _log_startup_payload_metric(scope: str | None, section: str, elapsed_ms: float, *, extra: str | None = None) -> None:
+    resolved_scope = str(scope or "").strip()
+    if not resolved_scope:
+        return
+    try:
+        rounded = int(round(float(elapsed_ms)))
+    except Exception:
+        rounded = 0
+    suffix = f" ({extra})" if extra else ""
+    log(f"⏱ Startup UI Section: {resolved_scope} {section} {rounded}ms{suffix}", "⏱ STARTUP")
 
 
 class DirectPresetService:
@@ -69,11 +84,18 @@ class DirectPresetService:
         source.profiles = kept_profiles
         return True
 
-    def collect_target_contexts(self, source: SourcePreset) -> dict[str, TargetContext]:
+    def collect_target_contexts(
+        self,
+        source: SourcePreset,
+        *,
+        startup_scope: str | None = None,
+    ) -> dict[str, TargetContext]:
+        _t_total = _time.perf_counter()
         related_profiles: dict[str, list[TargetProfileSnapshot]] = {}
         canonical_indices: dict[str, int] = {}
         canonical_profiles: dict[str, Any] = {}
 
+        _t_scan_profiles = _time.perf_counter()
         for index, profile in enumerate(source.profiles):
             target_keys = self._classifier().classify(profile)
             profile.canonical_target_keys = tuple(target_keys)
@@ -88,8 +110,15 @@ class DirectPresetService:
                 related_profiles.setdefault(target_key, []).append(snapshot)
                 canonical_indices.setdefault(target_key, index)
                 canonical_profiles.setdefault(target_key, profile)
+        _log_startup_payload_metric(
+            startup_scope,
+            "_build_content.payload.service.collect_target_contexts.scan_profiles",
+            (_time.perf_counter() - _t_scan_profiles) * 1000,
+            extra=f"profiles={len(source.profiles)}, canonical_targets={len(canonical_indices)}",
+        )
 
         contexts: dict[str, TargetContext] = {}
+        _t_build_contexts = _time.perf_counter()
         for target_key, index in canonical_indices.items():
             profile = canonical_profiles[target_key]
             metadata = self._target_metadata.get_metadata(target_key)
@@ -105,6 +134,18 @@ class DirectPresetService:
                 related_profiles=tuple(related_profiles.get(target_key, [])),
                 metadata=metadata,
             )
+        _log_startup_payload_metric(
+            startup_scope,
+            "_build_content.payload.service.collect_target_contexts.build_contexts",
+            (_time.perf_counter() - _t_build_contexts) * 1000,
+            extra=f"contexts={len(contexts)}",
+        )
+        _log_startup_payload_metric(
+            startup_scope,
+            "_build_content.payload.service.collect_target_contexts.total",
+            (_time.perf_counter() - _t_total) * 1000,
+            extra=f"contexts={len(contexts)}",
+        )
         return contexts
 
     def build_target_views(self, source: SourcePreset):
@@ -115,31 +156,117 @@ class DirectPresetService:
         }
         return build_target_views(contexts)
 
-    def build_basic_ui_payload(self, source: SourcePreset) -> BasicUiPayload:
-        contexts = self.collect_target_contexts(source)
+    def build_basic_ui_payload(self, source: SourcePreset, *, startup_scope: str | None = None) -> BasicUiPayload:
+        _t_total = _time.perf_counter()
+        contexts = self.collect_target_contexts(source, startup_scope=startup_scope)
+
+        _t_basic_contexts = _time.perf_counter()
         basic_contexts = {
             key: ctx
             for key, ctx in contexts.items()
             if self._target_metadata.should_include_in_basic_ui(key)
         }
+        _log_startup_payload_metric(
+            startup_scope,
+            "_build_content.payload.service.basic_contexts",
+            (_time.perf_counter() - _t_basic_contexts) * 1000,
+            extra=f"contexts={len(contexts)}, basic_contexts={len(basic_contexts)}",
+        )
 
+        _t_target_views = _time.perf_counter()
         target_views = tuple(build_target_views(basic_contexts))
+        _log_startup_payload_metric(
+            startup_scope,
+            "_build_content.payload.service.target_views",
+            (_time.perf_counter() - _t_target_views) * 1000,
+            extra=f"target_views={len(target_views)}",
+        )
+
+        _t_target_items = _time.perf_counter()
         target_items = {
             key: self._target_metadata.build_ui_item(key)
             for key in basic_contexts
         }
-        strategy_selections = {
-            key: self.get_target_details(source, key).current_strategy
-            for key in basic_contexts
-        }
+        _log_startup_payload_metric(
+            startup_scope,
+            "_build_content.payload.service.target_items",
+            (_time.perf_counter() - _t_target_items) * 1000,
+            extra=f"target_items={len(target_items)}",
+        )
+
+        catalogs = self._strategy_catalogs()
+        _t_strategy_names = _time.perf_counter()
+        strategy_names_by_target: dict[str, dict[str, str]] = {}
+        strategy_names_cache: dict[tuple[str, ...], dict[str, str]] = {}
+        for key, ctx in basic_contexts.items():
+            candidates_key = tuple(ctx.strategy_candidates)
+            names = strategy_names_cache.get(candidates_key)
+            if names is None:
+                names = {
+                    strategy_id: str(entry.get("name") or strategy_id)
+                    for strategy_id, entry in self._strategy_entries_from_candidates(
+                        candidates_key,
+                        catalogs=catalogs,
+                    ).items()
+                }
+                strategy_names_cache[candidates_key] = names
+            strategy_names_by_target[key] = dict(names)
+        _log_startup_payload_metric(
+            startup_scope,
+            "_build_content.payload.service.strategy_name_maps",
+            (_time.perf_counter() - _t_strategy_names) * 1000,
+            extra=f"targets={len(strategy_names_by_target)}, variants={len(strategy_names_cache)}",
+        )
+
+        _t_strategy_selections = _time.perf_counter()
+        strategy_selections: dict[str, str] = {}
+        strategy_lookup_cache: dict[tuple[str, ...], dict[str, str]] = {}
+        current_strategy_cache: dict[tuple[int, tuple[str, ...]], str] = {}
+        for key, ctx in basic_contexts.items():
+            profile_key = (int(ctx.profile_index), tuple(ctx.strategy_candidates))
+            current_strategy = current_strategy_cache.get(profile_key)
+            if current_strategy is None:
+                current_strategy = self._resolve_current_strategy_from_context(
+                    source,
+                    ctx,
+                    catalogs=catalogs,
+                    strategy_lookup_cache=strategy_lookup_cache,
+                )
+                current_strategy_cache[profile_key] = current_strategy
+            strategy_selections[key] = current_strategy
+        _log_startup_payload_metric(
+            startup_scope,
+            "_build_content.payload.service.strategy_selections",
+            (_time.perf_counter() - _t_strategy_selections) * 1000,
+            extra=(
+                f"targets={len(strategy_selections)}, "
+                f"unique_profiles={len(current_strategy_cache)}, "
+                f"variants={len(strategy_lookup_cache)}"
+            ),
+        )
+
+        _t_filter_modes = _time.perf_counter()
         filter_modes = {
             key: ctx.filter_mode
             for key, ctx in basic_contexts.items()
         }
+        _log_startup_payload_metric(
+            startup_scope,
+            "_build_content.payload.service.filter_modes",
+            (_time.perf_counter() - _t_filter_modes) * 1000,
+            extra=f"targets={len(filter_modes)}",
+        )
+        _log_startup_payload_metric(
+            startup_scope,
+            "_build_content.payload.service.total",
+            (_time.perf_counter() - _t_total) * 1000,
+            extra=f"targets={len(target_items)}",
+        )
         return BasicUiPayload(
             target_views=target_views,
             target_items=target_items,
             strategy_selections=strategy_selections,
+            strategy_names_by_target=strategy_names_by_target,
             filter_modes=filter_modes,
         )
 
@@ -304,18 +431,7 @@ class DirectPresetService:
         ctx = contexts.get(str(target_key or "").strip().lower())
         if ctx is None:
             return {}
-        entries: dict[str, dict[str, str]] = {}
-        for catalog_name in ctx.strategy_candidates:
-            for entry in self._strategy_catalogs().get(catalog_name, {}).values():
-                entries.setdefault(
-                    entry.strategy_id,
-                    {
-                        "id": entry.strategy_id,
-                        "name": entry.name,
-                        "args": entry.args,
-                    },
-                )
-        return entries
+        return self._strategy_entries_from_candidates(ctx.strategy_candidates)
 
     def collect_missing_out_range_warning_labels(self, source: SourcePreset) -> list[str]:
         labels: list[str] = []
@@ -348,8 +464,18 @@ class DirectPresetService:
         ctx = contexts.get(normalized_key)
         if ctx is None:
             return None
+        return self._resolve_target_state_from_context(source, ctx)
 
-        profile = source.profiles[ctx.profile_index]
+    def _resolve_target_state_from_context(
+        self,
+        source: SourcePreset,
+        ctx: TargetContext,
+    ) -> _ResolvedTargetState | None:
+        try:
+            profile = source.profiles[ctx.profile_index]
+        except Exception:
+            return None
+
         strategy_id = self._infer_strategy_id(profile.action_lines, ctx.strategy_candidates)
         out_range = self._rules().parse_out_range(profile.action_lines)
         send = self._rules().parse_send(profile.action_lines)
@@ -374,6 +500,25 @@ class DirectPresetService:
             raw_action_lines=tuple(profile.action_lines),
         )
 
+    def _resolve_current_strategy_from_context(
+        self,
+        source: SourcePreset,
+        ctx: TargetContext,
+        *,
+        catalogs: dict[str, dict[str, StrategyEntry]] | None = None,
+        strategy_lookup_cache: dict[tuple[str, ...], dict[str, str]] | None = None,
+    ) -> str:
+        try:
+            profile = source.profiles[ctx.profile_index]
+        except Exception:
+            return "none"
+        return self._infer_strategy_id(
+            profile.action_lines,
+            ctx.strategy_candidates,
+            catalogs=catalogs,
+            strategy_lookup_cache=strategy_lookup_cache,
+        )
+
     def _candidate_catalog_names(self, protocol_kind: str) -> tuple[str, ...]:
         if self._engine == "winws2":
             if protocol_kind in ("udp", "l7"):
@@ -386,6 +531,26 @@ class DirectPresetService:
     def _strategy_catalogs(self) -> dict[str, dict[str, StrategyEntry]]:
         return load_strategy_catalogs(self._paths, self._engine)
 
+    def _strategy_entries_from_candidates(
+        self,
+        candidates: tuple[str, ...] | list[str],
+        *,
+        catalogs: dict[str, dict[str, StrategyEntry]] | None = None,
+    ) -> dict[str, dict[str, str]]:
+        resolved_catalogs = catalogs or self._strategy_catalogs()
+        entries: dict[str, dict[str, str]] = {}
+        for catalog_name in tuple(candidates or ()):
+            for entry in resolved_catalogs.get(catalog_name, {}).values():
+                entries.setdefault(
+                    entry.strategy_id,
+                    {
+                        "id": entry.strategy_id,
+                        "name": entry.name,
+                        "args": entry.args,
+                    },
+                )
+        return entries
+
     def _strategy_args_by_id(self, strategy_id: str, candidates: tuple[str, ...]) -> list[str]:
         sid = str(strategy_id or "").strip()
         if not sid or sid == "none":
@@ -396,15 +561,51 @@ class DirectPresetService:
                 return [line.strip() for line in entry.args.splitlines() if line.strip()]
         return []
 
-    def _infer_strategy_id(self, action_lines: list[str], candidates: tuple[str, ...]) -> str:
+    def _infer_strategy_id(
+        self,
+        action_lines: list[str],
+        candidates: tuple[str, ...],
+        *,
+        catalogs: dict[str, dict[str, StrategyEntry]] | None = None,
+        strategy_lookup_cache: dict[tuple[str, ...], dict[str, str]] | None = None,
+    ) -> str:
         normalized = self._normalize_args(self._rules().strip_helper_lines(action_lines))
         if not normalized:
             return "none"
-        for name in candidates:
-            for entry in self._strategy_catalogs().get(name, {}).values():
-                if self._normalize_args(entry.args.splitlines()) == normalized:
-                    return entry.strategy_id
-        return "custom"
+        lookup = self._strategy_lookup_for_candidates(
+            candidates,
+            catalogs=catalogs,
+            strategy_lookup_cache=strategy_lookup_cache,
+        )
+        return lookup.get(normalized) or "custom"
+
+    def _strategy_lookup_for_candidates(
+        self,
+        candidates: tuple[str, ...],
+        *,
+        catalogs: dict[str, dict[str, StrategyEntry]] | None = None,
+        strategy_lookup_cache: dict[tuple[str, ...], dict[str, str]] | None = None,
+    ) -> dict[str, str]:
+        cache_key = tuple(candidates or ())
+        cache = strategy_lookup_cache if strategy_lookup_cache is not None else {}
+        cached = cache.get(cache_key)
+        if cached is not None:
+            return cached
+
+        resolved_catalogs = catalogs or self._strategy_catalogs()
+        lookup: dict[str, str] = {}
+        for name in cache_key:
+            for entry in resolved_catalogs.get(name, {}).values():
+                normalized_args = self._normalize_args(
+                    self._rules().strip_helper_lines(entry.args.splitlines())
+                )
+                if not normalized_args:
+                    continue
+                lookup.setdefault(normalized_args, entry.strategy_id)
+
+        if strategy_lookup_cache is not None:
+            strategy_lookup_cache[cache_key] = lookup
+        return lookup
 
     @staticmethod
     def _normalize_args(lines: list[str] | tuple[str, ...]) -> str:

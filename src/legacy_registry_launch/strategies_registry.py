@@ -80,7 +80,7 @@ def set_strategy_set(strategy_set: Optional[str]):
 # ==================== КОНСТАНТЫ ФИЛЬТРОВ ====================
 
 # Discord Voice фильтр (используется в base_filter)
-DISCORD_VOICE_FILTER = "--filter-l7=discord,stun"
+DISCORD_VOICE_FILTER = "--filter-l7=stun,discord"
 
 
 def _load_strategies_from_json(strategy_type: str, strategy_set: Optional[str] = None) -> Dict:

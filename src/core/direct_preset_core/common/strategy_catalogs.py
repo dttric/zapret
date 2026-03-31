@@ -6,6 +6,7 @@ import shutil
 from typing import Optional
 
 from core.paths import AppPaths
+from core.presets.strategy_catalog_sanitizer import sanitize_strategy_catalog_dir
 
 
 @dataclass(frozen=True)
@@ -36,6 +37,8 @@ def ensure_user_catalogs(paths: AppPaths) -> Path:
             continue
         dst.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(src, dst)
+    sanitize_strategy_catalog_dir(user_root / "winws1")
+    sanitize_strategy_catalog_dir(user_root / "winws2")
     return user_root
 
 

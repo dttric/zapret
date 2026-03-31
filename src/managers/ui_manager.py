@@ -1,8 +1,6 @@
 # managers/ui_manager.py
 
 from log import log
-from ui.main_window_pages import get_loaded_page
-from ui.page_names import PageName
 
 class UIManager:
     """⚡ Упрощенный менеджер для управления UI компонентами"""
@@ -16,19 +14,13 @@ class UIManager:
     def _get_strategy_name(self) -> str:
         """Получает текущее имя стратегии"""
         store = getattr(self.app, 'ui_state_store', None)
-        if store is not None:
-            try:
-                strategy_name = store.snapshot().current_strategy_summary
-                if strategy_name:
-                    return strategy_name
-            except Exception:
-                pass
-        strategy_name = getattr(self.app, 'current_strategy_name', None)
-        if strategy_name == "Автостарт DPI отключен":
+        if store is None:
             return None
-        if strategy_name:
-            return str(strategy_name)
-        return None
+        try:
+            strategy_name = store.snapshot().current_strategy_summary
+        except Exception:
+            return None
+        return str(strategy_name) if strategy_name else None
 
     def update_theme_gallery(self, available_themes: list = None) -> None:
         """Обновляет галерею тем на странице оформления"""
@@ -139,26 +131,3 @@ class UIManager:
             log(f"Заголовок: {title}", "DEBUG")
         except Exception as e:
             log(f"Ошибка обновления заголовка: {e}", "ERROR")
-
-    def update_subscription_button_text(self, is_premium: bool, days_remaining: int) -> None:
-        """⚡ Обновляет текст кнопки подписки"""
-        try:
-            about_page = get_loaded_page(self.app, PageName.ABOUT)
-            subscription_btn = getattr(about_page, 'premium_btn', None)
-            if subscription_btn is None:
-                return
-            
-            # Определяем текст кнопки
-            if is_premium:
-                if days_remaining is not None and days_remaining > 0:
-                    text = f"Premium (осталось {days_remaining} дн.)" if days_remaining <= 7 else "Premium активен"
-                elif days_remaining == 0:
-                    text = "Premium (истекает сегодня!)"
-                else:
-                    text = "Premium активен"
-            else:
-                text = "Получить Premium"
-            
-            subscription_btn.setText(text)
-        except Exception as e:
-            log(f"Ошибка обновления кнопки подписки: {e}", "ERROR")

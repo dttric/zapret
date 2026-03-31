@@ -95,17 +95,6 @@ class SubscriptionManager:
                 current_theme,
                 days_remaining
             )
-
-            self.app.ui_manager.update_subscription_button_text(
-                is_premium,
-                days_remaining
-            )
-
-        if hasattr(self.app, 'update_subscription_display'):
-            self.app.update_subscription_display(
-                is_premium,
-                days_remaining if days_remaining and days_remaining > 0 else None
-            )
             log(f"Обновлены карточки подписки: premium={is_premium}", "DEBUG")
 
         if hasattr(self.app, 'theme_manager') and hasattr(self.app, 'ui_manager'):

@@ -172,7 +172,7 @@ class StrategyRunnerV1(StrategyRunnerBase):
             if self._preset_file_path and os.path.exists(self._preset_file_path):
                 self.start_from_preset_file(
                     self._preset_file_path,
-                    strategy_name=self.current_strategy_name or "Preset",
+                    strategy_name=self.current_launch_label or "Preset",
                 )
         except Exception as e:
             log(f"Error restarting after config change: {e}", "ERROR")
@@ -284,7 +284,7 @@ class StrategyRunnerV1(StrategyRunnerBase):
             )
 
             # Save info
-            self.current_strategy_name = strategy_name
+            self.current_launch_label = strategy_name
             self.current_strategy_args = list(launch_args)
 
             # Quick startup check
@@ -325,7 +325,7 @@ class StrategyRunnerV1(StrategyRunnerBase):
                         self._set_last_error(f"winws завершился сразу (код {exit_code})")
 
                 self.running_process = None
-                self.current_strategy_name = None
+                self.current_launch_label = None
                 self.current_strategy_args = None
 
                 # System-level errors — don't retry
@@ -360,7 +360,7 @@ class StrategyRunnerV1(StrategyRunnerBase):
             import traceback
             log(traceback.format_exc(), "DEBUG")
             self.running_process = None
-            self.current_strategy_name = None
+            self.current_launch_label = None
             self.current_strategy_args = None
             return False
 

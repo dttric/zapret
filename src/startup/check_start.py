@@ -474,9 +474,9 @@ def display_startup_warnings():
         if has_special_chars:
             warnings.append(error_message)
         
-        # Проверяем и отключаем прокси-сервер
-        proxy_was_disabled, proxy_msg = check_and_disable_proxy()
-        if proxy_was_disabled and proxy_msg:
+        # Проверяем ручной прокси-сервер, но не меняем его без явного согласия.
+        proxy_enabled, proxy_msg = check_proxy_warning()
+        if proxy_enabled and proxy_msg:
             warnings.append(proxy_msg)
         
         # Если есть предупреждения - показываем
@@ -511,20 +511,21 @@ def display_startup_warnings():
         log(error_msg, level="❌ CRITICAL")
         return False
 
-def collect_startup_warnings() -> tuple[bool, list[str], str | None]:
+def collect_startup_warnings() -> tuple[bool, list[str], str | None, dict | None]:
     """
     Собирает НЕКРИТИЧЕСКИЕ предупреждения старта без показа UI.
 
     Returns:
-        (can_continue, warnings, fatal_error)
+        (can_continue, warnings, fatal_error, proxy_prompt)
         fatal_error != None означает, что запуск не поддерживается (например, Windows 7/8).
     """
     warnings: list[str] = []
+    proxy_prompt: dict | None = None
 
     # "Критичное": версия Windows
     has_old_windows, win_error = check_windows_version()
     if has_old_windows:
-        return False, warnings, win_error
+        return False, warnings, win_error, None
 
     # Некритические проверки
     has_cmd_issues, cmd_msg = check_system_commands()
@@ -547,11 +548,14 @@ def collect_startup_warnings() -> tuple[bool, list[str], str | None]:
     if has_special_chars and error_message:
         warnings.append(error_message)
 
-    proxy_was_disabled, proxy_msg = check_and_disable_proxy()
-    if proxy_was_disabled and proxy_msg:
-        warnings.append(proxy_msg)
+    proxy_enabled, proxy_msg = check_proxy_warning()
+    if proxy_enabled:
+        proxy_prompt = {
+            "title": "Включен системный прокси",
+            "message": proxy_msg or "",
+        }
 
-    return True, warnings, None
+    return True, warnings, None, proxy_prompt
         
 def _service_exists_reg(name: str) -> bool:
     """
@@ -806,6 +810,38 @@ def check_and_disable_proxy() -> tuple[bool, str]:
             "Настройки → Сеть и Интернет → Прокси-сервер → "
             "\"Использовать прокси-сервер\" → Выкл"
         )
+
+
+def check_proxy_warning() -> tuple[bool, str]:
+    """
+    Проверяет включён ли ручной прокси Windows, но не меняет настройки.
+
+    Возвращает:
+    - (is_enabled, message)
+    """
+    try:
+        from log import log
+    except ImportError:
+        log = lambda msg, **kw: print(msg)
+
+    is_enabled, proxy_server, error = _is_proxy_enabled()
+
+    if error:
+        log(f"Ошибка проверки прокси: {error}", level="WARNING")
+        return False, ""
+
+    if not is_enabled:
+        log("Ручной прокси-сервер не включен", level="DEBUG")
+        return False, ""
+
+    proxy_info = f" ({proxy_server})" if proxy_server else ""
+    log(f"Обнаружен включенный ручной прокси-сервер{proxy_info}", level="WARNING")
+    return True, (
+        f"Обнаружен включенный ручной прокси-сервер{proxy_info}.\n\n"
+        "Он может мешать работе Zapret.\n"
+        "Приложение может предложить отключить его, но по умолчанию настройки прокси "
+        "изменяться не будут."
+    )
 
 
 def check_goodbyedpi() -> tuple[bool, str]:

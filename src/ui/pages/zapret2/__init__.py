@@ -3,14 +3,12 @@ from .direct_control_page import Zapret2DirectControlPage
 from .direct_zapret2_page import Zapret2StrategiesPageNew
 from .strategy_detail_page import StrategyDetailPage
 from .preset_detail_page import Zapret2PresetDetailPage
-from .preset_folders_page import Zapret2PresetFoldersPage
 from .user_presets_page import Zapret2UserPresetsPage
 
 __all__ = [
     'Zapret2DirectControlPage',
     'Zapret2StrategiesPageNew',
     'Zapret2PresetDetailPage',
-    'Zapret2PresetFoldersPage',
     'Zapret2UserPresetsPage',
     'StrategyDetailPage',
 ]

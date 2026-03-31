@@ -11,7 +11,10 @@ from ui.page_names import PageName
 def get_eager_page_names(window) -> tuple[PageName, ...]:
     method = window._get_launch_method()
 
-    names: list[PageName] = [PageName.HOME]
+    names: list[PageName] = []
+    startup_without_home = {"direct_zapret2", "direct_zapret1", "direct_zapret2_orchestra", "orchestra"}
+    if method not in startup_without_home:
+        names.append(PageName.HOME)
     eager_mode_entry_page = getattr(window, "_eager_mode_entry_page", {}) or {}
     eager_page_names_base = getattr(window, "_eager_page_names_base", ()) or ()
     entry_page = eager_mode_entry_page.get(method)
@@ -76,6 +79,27 @@ def get_page_route_key(window, name: PageName) -> str | None:
         return None
 
     return str(spec[2] or "").strip() or None
+
+
+def get_strategy_page_name_for_method(method: str | None) -> PageName | None:
+    normalized = str(method or "").strip().lower()
+    if normalized == "direct_zapret2":
+        return PageName.ZAPRET2_DIRECT
+    if normalized == "direct_zapret2_orchestra":
+        return PageName.ZAPRET2_ORCHESTRA
+    if normalized == "direct_zapret1":
+        return PageName.ZAPRET1_DIRECT
+    return None
+
+
+def get_loaded_strategy_page_for_method(window, method: str | None = None) -> QWidget | None:
+    if method is None:
+        getter = getattr(window, "_get_launch_method", None)
+        method = getter() if callable(getter) else ""
+    page_name = get_strategy_page_name_for_method(method)
+    if page_name is None:
+        return None
+    return get_loaded_page(window, page_name)
 
 
 def connect_signal_once(window, key: str, signal_obj, slot_obj) -> None:
@@ -392,27 +416,12 @@ def connect_lazy_page_signals(window, page_name: PageName, page: QWidget) -> Non
             page.preset_open_requested,
             window._open_zapret2_preset_detail,
         )
-    if page_name in (PageName.ZAPRET2_USER_PRESETS, PageName.ZAPRET2_ORCHESTRA_USER_PRESETS) and hasattr(page, "folders_open_requested"):
-        connect_signal_once(
-            window,
-            f"{page_name.name}.folders_open_requested",
-            page.folders_open_requested,
-            window._open_zapret2_preset_folders,
-        )
-
     if page_name == PageName.ZAPRET1_USER_PRESETS and hasattr(page, "preset_open_requested"):
         connect_signal_once(
             window,
             "z1_user_presets.preset_open_requested",
             page.preset_open_requested,
             window._open_zapret1_preset_detail,
-        )
-    if page_name == PageName.ZAPRET1_USER_PRESETS and hasattr(page, "folders_open_requested"):
-        connect_signal_once(
-            window,
-            "z1_user_presets.folders_open_requested",
-            page.folders_open_requested,
-            window._open_zapret1_preset_folders,
         )
 
     if page_name == PageName.ZAPRET2_PRESET_DETAIL and hasattr(page, "back_clicked"):
@@ -430,35 +439,6 @@ def connect_lazy_page_signals(window, page_name: PageName, page: QWidget) -> Non
             page.back_clicked,
             lambda: window.show_page(PageName.ZAPRET1_USER_PRESETS),
         )
-    if page_name == PageName.ZAPRET2_PRESET_FOLDERS and hasattr(page, "back_clicked"):
-        connect_signal_once(
-            window,
-            "z2_preset_folders.back_clicked",
-            page.back_clicked,
-            window._show_active_zapret2_user_presets_page,
-        )
-    if page_name == PageName.ZAPRET1_PRESET_FOLDERS and hasattr(page, "back_clicked"):
-        connect_signal_once(
-            window,
-            "z1_preset_folders.back_clicked",
-            page.back_clicked,
-            window._show_zapret1_user_presets_page,
-        )
-    if page_name == PageName.ZAPRET2_PRESET_FOLDERS and hasattr(page, "folders_changed"):
-        connect_signal_once(
-            window,
-            "z2_preset_folders.folders_changed",
-            page.folders_changed,
-            window._refresh_active_zapret2_user_presets_page,
-        )
-    if page_name == PageName.ZAPRET1_PRESET_FOLDERS and hasattr(page, "folders_changed"):
-        connect_signal_once(
-            window,
-            "z1_preset_folders.folders_changed",
-            page.folders_changed,
-            window._refresh_zapret1_user_presets_page,
-        )
-
     if page_name in (PageName.ZAPRET2_DIRECT_CONTROL, PageName.ZAPRET2_ORCHESTRA_CONTROL):
         presets_target = (
             PageName.ZAPRET2_ORCHESTRA_USER_PRESETS
@@ -662,40 +642,8 @@ def ensure_page(window, name: PageName) -> QWidget | None:
         page_cls = getattr(module, class_name)
         page = page_cls(window)
     except Exception as e:
-        fallback_specs = {
-            PageName.ZAPRET2_ORCHESTRA_CONTROL: (
-                "ui.pages.zapret2.direct_control_page",
-                "Zapret2DirectControlPage",
-            ),
-            PageName.ZAPRET2_ORCHESTRA_USER_PRESETS: (
-                "ui.pages.orchestra_zapret2.user_presets_page",
-                "OrchestraZapret2UserPresetsPage",
-            ),
-            PageName.ZAPRET2_ORCHESTRA_STRATEGY_DETAIL: (
-                "ui.pages.zapret2.strategy_detail_page",
-                "StrategyDetailPage",
-            ),
-        }
-        fallback = fallback_specs.get(resolved_name)
-        if not fallback:
-            log(f"Ошибка lazy-инициализации страницы {resolved_name}: {e}", "ERROR")
-            return None
-
-        log(
-            f"Lazy-инициализация страницы {resolved_name} не удалась: {e}. Пробуем fallback...",
-            "WARNING",
-        )
-        try:
-            fb_module = import_module(fallback[0])
-            fb_cls = getattr(fb_module, fallback[1])
-            page = fb_cls(window)
-            log(f"Использован fallback для страницы {resolved_name}: {fallback[1]}", "WARNING")
-        except Exception as fallback_error:
-            log(
-                f"Fallback lazy-инициализации страницы {resolved_name} тоже не удался: {fallback_error}",
-                "ERROR",
-            )
-            return None
+        log(f"Ошибка lazy-инициализации страницы {resolved_name}: {e}", "ERROR")
+        return None
 
     route_key = get_page_route_key(window, resolved_name)
     if route_key:
@@ -707,10 +655,6 @@ def ensure_page(window, name: PageName) -> QWidget | None:
     setattr(window, attr_name, page)
     window._apply_ui_language_to_page(page)
     bind_page_ui_state(window, page)
-
-    # Legacy alias
-    if resolved_name == PageName.HOSTLIST:
-        window.ipset_page = page
 
     if bool(getattr(window, "_page_signal_bootstrap_complete", False)):
         connect_lazy_page_signals(window, resolved_name, page)

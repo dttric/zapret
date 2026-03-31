@@ -83,17 +83,20 @@
 --ipset-exclude=lists/ipset-exclude.txt
 --ipset-exclude=lists/ipset-ru.txt
 --ipset-exclude=lists/ipset-dns.txt
+--out-range=-n8
 --lua-desync=fake:blob=quic_google:repeats=11
 
 --new
 
---filter-l7=discord,stun
+--filter-l7=stun,discord
 --payload=stun,discord_ip_discovery
+--out-range=-n8
 --lua-desync=fake:blob=fake_default_udp:repeats=6
 
 --new
 
 --filter-tcp=80,443,1080,2053,2083,2087,2096,8443
+--out-range=-d10
 --hostlist-domains=discord.media
 --lua-desync=fake:blob=fake_default_tls:tls_mod=rnd,dupsid,sni=www.google.com:tcp_ack=-66000:repeats=11
 --lua-desync=multidisorder:pos=1,midsld:tcp_ack=-66000:repeats=11
@@ -138,6 +141,7 @@
 --ipset-exclude=lists/ipset-exclude.txt
 --ipset-exclude=lists/ipset-ru.txt
 --ipset-exclude=lists/ipset-dns.txt
+--out-range=-d8
 --lua-desync=fake:blob=fake_default_tls:tls_mod=rnd,dupsid,sni=www.google.com:tcp_ack=-66000:repeats=11
 --lua-desync=multidisorder:pos=1,midsld:tcp_ack=-66000:repeats=11
 
@@ -145,9 +149,7 @@
 
 --filter-udp=443
 --ipset=lists/ipset-all.txt
---ipset-exclude=lists/ipset-exclude.txt
---ipset-exclude=lists/ipset-ru.txt
---ipset-exclude=lists/ipset-dns.txt
+--out-range=-n8
 --lua-desync=fake:blob=quic_google:repeats=11
 
 --new

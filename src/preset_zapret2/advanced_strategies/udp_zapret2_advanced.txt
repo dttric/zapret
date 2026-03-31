@@ -521,7 +521,7 @@ name = Fake QUIC6 AutoTTL + UDPLen out_range
 author = community
 blobs = quic6
 --payload=all
---lua-desync=fake:blob=quic6:repeats=2:ip_autottl=-1,3-20:ip6_autottl=-1,3-20:payload=all:out_range=-n3
+--lua-desync=fake:blob=quic6:repeats=2:ip_autottl=-1,3-20:ip6_autottl=-1,3-20:payload=all
 --lua-desync=udplen:increment=8:pattern=0x0F0F0E0F
 
 [fake_tls_max_udp]

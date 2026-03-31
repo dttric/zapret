@@ -3,6 +3,8 @@
 
 from __future__ import annotations
 
+import time as _time
+
 from typing import Any
 
 from PyQt6.QtCore import Qt, pyqtSignal, QTimer
@@ -41,6 +43,14 @@ _INFO_TEXT = (
 )
 
 
+def _log_startup_z1_direct_metric(section: str, elapsed_ms: float) -> None:
+    try:
+        rounded = int(round(float(elapsed_ms)))
+    except Exception:
+        rounded = 0
+    log(f"⏱ Startup UI Section: ZAPRET1_DIRECT {section} {rounded}ms", "⏱ STARTUP")
+
+
 class Zapret1StrategiesPage(BasePage):
     """Список target'ов Zapret 1 с breadcrumb-навигацией."""
 
@@ -68,6 +78,7 @@ class Zapret1StrategiesPage(BasePage):
         self._empty_state_label = None
         self._ui_state_store = None
         self._ui_state_unsubscribe = None
+        self._basic_payload_cache = None
 
         self._setup_breadcrumb()
 
@@ -138,6 +149,7 @@ class Zapret1StrategiesPage(BasePage):
         QTimer.singleShot(0, self._build_content)
 
     def _build_content(self) -> None:
+        _t_total = _time.perf_counter()
         self._build_scheduled = False
         try:
             self._do_build()
@@ -147,15 +159,22 @@ class Zapret1StrategiesPage(BasePage):
 
             log(traceback.format_exc(), "DEBUG")
         self._built = True
+        _log_startup_z1_direct_metric("_build_content.total", (_time.perf_counter() - _t_total) * 1000)
 
     def _do_build(self) -> None:
+        _t_toolbar = _time.perf_counter()
         self._clear_dynamic_widgets()
         self._empty_state_label = None
 
         self._build_toolbar()
+        _log_startup_z1_direct_metric("_build_content.toolbar", (_time.perf_counter() - _t_toolbar) * 1000)
 
-        self._targets = self._load_targets()
-        target_views = self._load_target_views()
+        _t_payload = _time.perf_counter()
+        payload = self._get_basic_payload(refresh=True, startup_scope="ZAPRET1_DIRECT")
+        self._targets = payload.target_items or {}
+        target_views = list(payload.target_views or ())
+        strategy_names_by_target = payload.strategy_names_by_target or {}
+        _log_startup_z1_direct_metric("_build_content.payload", (_time.perf_counter() - _t_payload) * 1000)
         if not self._targets:
             self._empty_state_label = BodyLabel(
                 tr_catalog(
@@ -167,24 +186,30 @@ class Zapret1StrategiesPage(BasePage):
             self.add_widget(self._empty_state_label)
             return
 
-        self.target_selections = self._load_current_selections()
+        self.target_selections = payload.strategy_selections or {}
         self.target_selections = {
             key: self.target_selections.get(key, "none")
             for key in self._targets.keys()
         }
 
-        filter_modes = self._load_filter_modes()
+        filter_modes = payload.filter_modes or {}
 
-        self._targets_list = PresetTargetsList(self, strategy_name_resolver=self._strategy_name_for_list)
+        _t_targets = _time.perf_counter()
+        self._targets_list = PresetTargetsList(
+            self,
+            startup_scope="ZAPRET1_DIRECT",
+        )
         self._targets_list.strategy_selected.connect(self._on_target_clicked)
         self._targets_list.selections_changed.connect(self._on_selections_changed)
         self._targets_list.build_from_target_views(
             target_views,
             metadata=self._targets,
             selections=self.target_selections,
+            strategy_names_by_target=strategy_names_by_target,
             filter_modes=filter_modes,
         )
         self.add_widget(self._targets_list, 1)
+        _log_startup_z1_direct_metric("_build_content.targets_list", (_time.perf_counter() - _t_targets) * 1000)
 
     def _build_toolbar(self) -> None:
         actions_card = SettingsCard()
@@ -228,41 +253,15 @@ class Zapret1StrategiesPage(BasePage):
     # Data helpers
     # ------------------------------------------------------------------
 
-    @staticmethod
-    def _load_targets() -> dict[str, Any]:
-        try:
-            from core.presets.direct_facade import DirectPresetFacade
+    def _get_direct_facade(self):
+        from core.presets.direct_facade import DirectPresetFacade
 
-            return DirectPresetFacade.from_launch_method("direct_zapret1").get_basic_ui_payload().target_items or {}
-        except Exception:
-            return {}
+        return DirectPresetFacade.from_launch_method("direct_zapret1")
 
-    @staticmethod
-    def _load_current_selections() -> dict[str, str]:
-        try:
-            from core.presets.direct_facade import DirectPresetFacade
-
-            return DirectPresetFacade.from_launch_method("direct_zapret1").get_basic_ui_payload().strategy_selections or {}
-        except Exception:
-            return {}
-
-    @staticmethod
-    def _load_target_views():
-        try:
-            from core.presets.direct_facade import DirectPresetFacade
-
-            return list(DirectPresetFacade.from_launch_method("direct_zapret1").get_basic_ui_payload().target_views or ())
-        except Exception:
-            return []
-
-    @staticmethod
-    def _load_filter_modes() -> dict[str, str]:
-        try:
-            from core.presets.direct_facade import DirectPresetFacade
-
-            return DirectPresetFacade.from_launch_method("direct_zapret1").get_basic_ui_payload().filter_modes or {}
-        except Exception:
-            return {}
+    def _get_basic_payload(self, *, refresh: bool = False, startup_scope: str | None = None):
+        if refresh or self._basic_payload_cache is None:
+            self._basic_payload_cache = self._get_direct_facade().get_basic_ui_payload(startup_scope=startup_scope)
+        return self._basic_payload_cache
 
     @staticmethod
     def _target_info_to_dict(target_key: str, target_info: Any) -> dict:
@@ -295,26 +294,6 @@ class Zapret1StrategiesPage(BasePage):
         data.setdefault("description", "")
         return data
 
-    def _strategy_name(self, strategy_id: str, target_key: str) -> str:
-        sid = (strategy_id or "").strip()
-        if not sid or sid == "none":
-            return tr_catalog("page.z1_direct.strategy.off", language=self._ui_language, default="Выключено")
-        if sid == "custom":
-            return tr_catalog("page.z1_direct.strategy.custom", language=self._ui_language, default="Свой набор")
-        try:
-            from core.presets.direct_facade import DirectPresetFacade
-
-            strats = DirectPresetFacade.from_launch_method("direct_zapret1").get_target_strategies(target_key) or {}
-            info = strats.get(sid)
-            if info:
-                return info.get("name", sid)
-        except Exception:
-            pass
-        return sid
-
-    def _strategy_name_for_list(self, target_key: str, strategy_id: str) -> str:
-        return self._strategy_name(strategy_id, target_key)
-
     # ------------------------------------------------------------------
     # Actions / handlers
     # ------------------------------------------------------------------
@@ -340,25 +319,24 @@ class Zapret1StrategiesPage(BasePage):
         if not self._targets_list:
             return
 
-        self.target_selections = self._load_current_selections()
+        payload = self._get_basic_payload(refresh=True)
+        self.target_selections = payload.strategy_selections or {}
         self.target_selections = {
             key: self.target_selections.get(key, "none")
             for key in (self._targets or {}).keys()
         }
+        self._targets_list.set_strategy_names_by_target(payload.strategy_names_by_target or {})
         self._targets_list.set_selections(self.target_selections)
 
-        filter_modes = self._load_filter_modes()
-        for target_key in (self._targets or {}).keys():
-            try:
-                self._targets_list.update_filter_mode(target_key, filter_modes.get(target_key) or "")
-            except Exception:
-                continue
+        filter_modes = payload.filter_modes or {}
+        self._targets_list.set_filter_modes(filter_modes, target_keys=(self._targets or {}).keys())
 
     def _reload(self, *_args) -> None:
         if hasattr(self, "_reload_btn"):
             self._reload_btn.set_loading(True)
         try:
             self._built = False
+            self._basic_payload_cache = None
             self._targets_list = None
             self._schedule_build()
         finally:
@@ -411,6 +389,7 @@ class Zapret1StrategiesPage(BasePage):
 
     def reload_for_mode_change(self) -> None:
         self._built = False
+        self._basic_payload_cache = None
         self._targets_list = None
         if self.isVisible():
             self._schedule_build()

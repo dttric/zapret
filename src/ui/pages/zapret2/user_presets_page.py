@@ -42,7 +42,6 @@ from PyQt6.QtWidgets import (
     QSizePolicy,
     QApplication,
     QFrame,
-    QComboBox,
 )
 from PyQt6.QtGui import QCursor
 import qtawesome as qta
@@ -82,10 +81,7 @@ except ImportError:
 from ui.theme import get_theme_tokens
 from ui.theme_semantic import get_semantic_palette
 from log import log
-from core.presets.library_hierarchy import (
-    ROOT_FOLDER_ID,
-    PresetHierarchyStore,
-)
+from core.presets.library_hierarchy import PresetHierarchyStore
 
 
 _icon_cache: dict[str, object] = {}
@@ -351,11 +347,8 @@ class _PresetListModel(QAbstractListModel):
     IconColorRole = Qt.ItemDataRole.UserRole + 8
     BuiltinRole = Qt.ItemDataRole.UserRole + 9
     DepthRole = Qt.ItemDataRole.UserRole + 10
-    FolderIdRole = Qt.ItemDataRole.UserRole + 11
-    PinnedRole = Qt.ItemDataRole.UserRole + 12
-    RatingRole = Qt.ItemDataRole.UserRole + 13
-    BuiltinFolderRole = Qt.ItemDataRole.UserRole + 14
-    FolderCollapsedRole = Qt.ItemDataRole.UserRole + 15
+    PinnedRole = Qt.ItemDataRole.UserRole + 11
+    RatingRole = Qt.ItemDataRole.UserRole + 12
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -406,10 +399,8 @@ class _PresetListModel(QAbstractListModel):
 
         kind = str(index.data(self.KindRole) or "")
         flags = Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable
-        if kind in {"preset", "folder"}:
+        if kind == "preset":
             flags |= Qt.ItemFlag.ItemIsDragEnabled
-        if kind == "folder":
-            flags |= Qt.ItemFlag.ItemIsDropEnabled
         return flags
 
     def supportedDragActions(self):
@@ -428,11 +419,9 @@ class _PresetListModel(QAbstractListModel):
 
         index = indexes[0]
         kind = str(index.data(self.KindRole) or "")
-        payload = {"kind": kind}
-        if kind == "preset":
-            payload["file_name"] = str(index.data(self.FileNameRole) or "")
-        elif kind == "folder":
-            payload["folder_id"] = str(index.data(self.FolderIdRole) or "")
+        if kind != "preset":
+            return mime
+        payload = {"kind": kind, "file_name": str(index.data(self.FileNameRole) or "")}
         mime.setData("application/x-zapret-preset-item", json.dumps(payload).encode("utf-8"))
         return mime
 
@@ -468,16 +457,10 @@ class _PresetListModel(QAbstractListModel):
             return bool(row.get("is_builtin", False))
         if role == self.DepthRole:
             return int(row.get("depth", 0) or 0)
-        if role == self.FolderIdRole:
-            return row.get("folder_id", "")
         if role == self.PinnedRole:
             return bool(row.get("is_pinned", False))
         if role == self.RatingRole:
             return int(row.get("rating", 0) or 0)
-        if role == self.BuiltinFolderRole:
-            return bool(row.get("is_builtin_folder", False))
-        if role == self.FolderCollapsedRole:
-            return bool(row.get("is_collapsed", False))
 
         return None
 
@@ -534,7 +517,7 @@ class _LinkedWheelListView(QListView):
             return
 
         kind = str(index.data(_PresetListModel.KindRole) or "")
-        if kind not in {"preset", "folder"}:
+        if kind != "preset":
             super().mouseMoveEvent(event)
             return
 
@@ -620,20 +603,21 @@ class _LinkedWheelListView(QListView):
             return
 
         source_kind = str(payload.get("kind") or "")
-        source_id = str(payload.get("file_name") or payload.get("name") or payload.get("folder_id") or "").strip()
-        if source_kind not in {"preset", "folder"} or not source_id:
+        source_id = str(payload.get("file_name") or payload.get("name") or "").strip()
+        if source_kind != "preset" or not source_id:
             event.ignore()
             return
 
         target_index = self.indexAt(event.position().toPoint())
-        target_kind = "folder"
-        target_id = ROOT_FOLDER_ID
+        target_kind = "end"
+        target_id = ""
         if target_index.isValid():
             target_kind = str(target_index.data(_PresetListModel.KindRole) or "")
-            if target_kind == "folder":
-                target_id = str(target_index.data(_PresetListModel.FolderIdRole) or ROOT_FOLDER_ID)
-            elif target_kind == "preset":
+            if target_kind == "preset":
                 target_id = str(target_index.data(_PresetListModel.FileNameRole) or "")
+            else:
+                target_kind = "end"
+                target_id = ""
 
         self.item_dropped.emit(source_kind, source_id, target_kind, target_id)
         event.acceptProposedAction()
@@ -643,7 +627,6 @@ class _PresetListDelegate(QStyledItemDelegate):
     action_triggered = pyqtSignal(str, str)
 
     _ROW_HEIGHT = 44
-    _FOLDER_HEIGHT = 28
     _SECTION_HEIGHT = 24
     _EMPTY_HEIGHT = 64
     _ACTION_SIZE = 28
@@ -682,7 +665,6 @@ class _PresetListDelegate(QStyledItemDelegate):
     def set_ui_language(self, language: str) -> None:
         self._ui_language = language
         self._action_tooltips = {
-            "folder": self._tr("page.z2_user_presets.delegate.tooltip.folder", "Переместить в папку"),
             "rating": self._tr("page.z2_user_presets.delegate.tooltip.rating", "Поставить рейтинг"),
             "edit": self._tr("page.z2_user_presets.delegate.tooltip.edit", "Меню пресета"),
             "pin": self._tr("page.z2_user_presets.delegate.tooltip.pin", "Закрепить сверху"),
@@ -693,8 +675,6 @@ class _PresetListDelegate(QStyledItemDelegate):
 
     def sizeHint(self, option: QStyleOptionViewItem, index: QModelIndex) -> QSize:
         kind = index.data(_PresetListModel.KindRole)
-        if kind == "folder":
-            return QSize(0, self._FOLDER_HEIGHT)
         if kind == "section":
             return QSize(0, self._SECTION_HEIGHT)
         if kind == "empty":
@@ -703,10 +683,6 @@ class _PresetListDelegate(QStyledItemDelegate):
 
     def paint(self, painter: QPainter, option: QStyleOptionViewItem, index: QModelIndex):
         kind = index.data(_PresetListModel.KindRole)
-
-        if kind == "folder":
-            self._paint_folder_row(painter, option, index)
-            return
 
         if kind == "section":
             self._paint_section_row(painter, option, str(index.data(_PresetListModel.TextRole) or ""))
@@ -721,7 +697,7 @@ class _PresetListDelegate(QStyledItemDelegate):
     def editorEvent(self, event, model, option: QStyleOptionViewItem, index: QModelIndex):
         _ = model
         kind = str(index.data(_PresetListModel.KindRole) or "")
-        if kind not in {"preset", "folder"}:
+        if kind != "preset":
             return False
         if event.type() != QEvent.Type.MouseButtonRelease:
             return False
@@ -731,8 +707,6 @@ class _PresetListDelegate(QStyledItemDelegate):
             return False
 
         item_id = str(index.data(_PresetListModel.FileNameRole) or "")
-        if kind == "folder":
-            item_id = str(index.data(_PresetListModel.FolderIdRole) or "")
         if not item_id:
             return False
 
@@ -747,20 +721,15 @@ class _PresetListDelegate(QStyledItemDelegate):
             return True
 
         self._clear_pending_destructive(update=False)
-        if kind == "preset":
-            self.action_triggered.emit("activate", item_id)
-        elif kind == "folder":
-            self.action_triggered.emit("toggle_folder", item_id)
+        self.action_triggered.emit("activate", item_id)
         return True
 
     def helpEvent(self, event: QHelpEvent, view, option: QStyleOptionViewItem, index: QModelIndex) -> bool:
         kind = str(index.data(_PresetListModel.KindRole) or "")
-        if kind not in {"preset", "folder"}:
+        if kind != "preset":
             return super().helpEvent(event, view, option, index)
 
         name = str(index.data(_PresetListModel.NameRole) or "")
-        if kind == "folder":
-            name = str(index.data(_PresetListModel.FolderIdRole) or "")
         is_active = bool(index.data(_PresetListModel.ActiveRole))
         is_builtin = bool(index.data(_PresetListModel.BuiltinRole))
         depth = int(index.data(_PresetListModel.DepthRole) or 0)
@@ -828,12 +797,8 @@ class _PresetListDelegate(QStyledItemDelegate):
         self._view.viewport().update()
 
     def _visible_actions(self, kind: str, is_active: bool, is_builtin: bool) -> list[str]:
-        _ = is_active
-        if kind == "folder":
-            return []
-        if is_builtin:
-            return ["rating", "edit"]
-        return ["folder", "rating", "edit"]
+        _ = (kind, is_active, is_builtin)
+        return ["rating", "edit"]
 
     def _action_rects(self, row_rect: QRect, kind: str, is_active: bool, is_builtin: bool) -> list[tuple[str, QRect]]:
         actions = self._visible_actions(kind, is_active, is_builtin)
@@ -906,40 +871,6 @@ class _PresetListDelegate(QStyledItemDelegate):
             painter.setPen(_to_qcolor(tokens.divider, "#5f6368"))
             y = rect.center().y()
             painter.drawLine(line_x1, y, line_x2, y)
-        painter.restore()
-
-    def _paint_folder_row(self, painter: QPainter, option: QStyleOptionViewItem, index: QModelIndex):
-        painter.save()
-        tokens = get_theme_tokens()
-        rect = option.rect
-        depth = int(index.data(_PresetListModel.DepthRole) or 0)
-        text = str(index.data(_PresetListModel.TextRole) or "")
-        is_builtin_folder = bool(index.data(_PresetListModel.BuiltinFolderRole))
-        is_collapsed = bool(index.data(_PresetListModel.FolderCollapsedRole))
-
-        left = rect.left() + 12 + depth * 18
-        arrow_rect = QRect(left, rect.center().y() - 6, 12, 12)
-        arrow_icon = "fa5s.chevron-right" if is_collapsed else "fa5s.chevron-down"
-        _cached_icon(arrow_icon, tokens.fg_faint).paint(painter, arrow_rect)
-        left += 14
-        icon_rect = QRect(left, rect.center().y() - 8, 16, 16)
-        icon_name = "fa5s.lock" if is_builtin_folder else "fa5s.folder"
-        icon_color = tokens.fg_muted if is_builtin_folder else tokens.accent_hex
-        _cached_icon(icon_name, icon_color).paint(painter, icon_rect)
-
-        text_rect = rect.adjusted(left + 24, 0, -12, 0)
-        font = painter.font()
-        font.setPointSize(9)
-        font.setBold(True)
-        painter.setFont(font)
-        painter.setPen(_to_qcolor(tokens.fg_muted, "#9aa2af"))
-        painter.drawText(text_rect, int(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter), text)
-
-        line_x1 = text_rect.left() + QFontMetrics(font).horizontalAdvance(text) + 10
-        line_x2 = rect.right() - 12
-        if line_x2 > line_x1:
-            painter.setPen(_to_qcolor(tokens.divider, "#5f6368"))
-            painter.drawLine(line_x1, rect.center().y(), line_x2, rect.center().y())
         painter.restore()
 
     def _paint_empty_row(self, painter: QPainter, option: QStyleOptionViewItem, text: str):
@@ -1267,52 +1198,6 @@ class _RenamePresetDialog(MessageBoxBase):
         return True
 
 
-class _PresetFolderDialog(MessageBoxBase):
-    def __init__(
-        self,
-        *,
-        preset_name: str,
-        folder_choices: list[dict],
-        current_folder_id: str,
-        parent=None,
-        language: str = "ru",
-    ):
-        if parent and not parent.isWindow():
-            parent = parent.window()
-        super().__init__(parent)
-        self._ui_language = language
-
-        self.titleLabel = SubtitleLabel("Куда переместить пресет", self.widget)
-        self.subtitleLabel = BodyLabel(
-            f"Выберите папку для пресета «{preset_name}».",
-            self.widget,
-        )
-        self.subtitleLabel.setWordWrap(True)
-
-        self.folderCombo = QComboBox(self.widget)
-        for item in folder_choices:
-            indent = "    " * int(item.get("depth", 0) or 0)
-            self.folderCombo.addItem(f"{indent}{item.get('name', '')}", item.get("id", ROOT_FOLDER_ID))
-
-        selected_index = 0
-        for index in range(self.folderCombo.count()):
-            if str(self.folderCombo.itemData(index) or "") == str(current_folder_id or ROOT_FOLDER_ID):
-                selected_index = index
-                break
-        self.folderCombo.setCurrentIndex(selected_index)
-
-        self.viewLayout.addWidget(self.titleLabel)
-        self.viewLayout.addWidget(self.subtitleLabel)
-        self.viewLayout.addWidget(self.folderCombo)
-
-        self.yesButton.setText("Переместить")
-        self.cancelButton.setText("Отмена")
-        self.widget.setMinimumWidth(420)
-
-    def selected_folder_id(self) -> str:
-        return str(self.folderCombo.currentData() or ROOT_FOLDER_ID)
-
-
 class _ResetAllPresetsDialog(MessageBoxBase):
     """Диалог подтверждения перезаписи пресетов из шаблонов."""
 
@@ -1358,7 +1243,6 @@ class _ResetAllPresetsDialog(MessageBoxBase):
 
 class Zapret2UserPresetsPage(BasePage):
     preset_open_requested = pyqtSignal(str)  # file_name
-    folders_open_requested = pyqtSignal()
     back_clicked = pyqtSignal()
 
     def __init__(self, parent=None):
@@ -1523,13 +1407,7 @@ class Zapret2UserPresetsPage(BasePage):
 
     def _load_preset_list_metadata_light(self) -> dict[str, dict[str, object]]:
         metadata: dict[str, dict[str, object]] = {}
-        if self._is_orchestra_backend():
-            get_presets_dir = self._import_orchestra_attr("", "get_presets_dir")
-            presets_dir = get_presets_dir()
-        else:
-            from core.services import get_app_paths
-
-            presets_dir = get_app_paths().engine_paths("winws2").ensure_directories().presets_dir
+        presets_dir = self._get_presets_dir_light()
 
         for entry in self._list_preset_entries_light():
             file_name = str(entry.get("file_name") or "").strip()
@@ -1558,6 +1436,57 @@ class Zapret2UserPresetsPage(BasePage):
 
         return metadata
 
+    def _get_presets_dir_light(self):
+        if self._is_orchestra_backend():
+            get_presets_dir = self._import_orchestra_attr("", "get_presets_dir")
+            return get_presets_dir()
+
+        from core.services import get_app_paths
+
+        return get_app_paths().engine_paths("winws2").ensure_directories().presets_dir
+
+    def _read_single_preset_list_metadata_light(self, file_name_or_name: str) -> tuple[str, dict[str, object]] | None:
+        candidate = str(file_name_or_name or "").strip()
+        if not candidate:
+            return None
+
+        candidate_file_name = candidate if candidate.lower().endswith(".txt") else f"{candidate}.txt"
+        matched_entry = None
+        for entry in self._list_preset_entries_light():
+            entry_file_name = str(entry.get("file_name") or "").strip()
+            entry_display_name = str(entry.get("display_name") or entry_file_name).strip()
+            if entry_file_name == candidate_file_name or entry_display_name == candidate:
+                matched_entry = entry
+                candidate_file_name = entry_file_name or candidate_file_name
+                break
+
+        if matched_entry is None:
+            return None
+
+        display_name = str(matched_entry.get("display_name") or candidate_file_name).strip()
+        kind = str(matched_entry.get("kind") or "").strip() or "user"
+        is_builtin = bool(matched_entry.get("is_builtin", False))
+        path = self._get_presets_dir_light() / candidate_file_name
+
+        try:
+            metadata = {
+                **_read_preset_list_metadata(path),
+                "display_name": display_name,
+                "kind": kind,
+                "is_builtin": is_builtin,
+            }
+        except Exception:
+            metadata = {
+                "description": "",
+                "modified": "",
+                "icon_color": "",
+                "display_name": display_name,
+                "kind": kind,
+                "is_builtin": is_builtin,
+            }
+
+        return candidate_file_name, metadata
+
     def _resolve_display_name(self, reference: str) -> str:
         candidate = str(reference or "").strip()
         if not candidate:
@@ -1580,18 +1509,34 @@ class Zapret2UserPresetsPage(BasePage):
         if self.isVisible():
             self._load_presets()
 
+    def _on_store_updated(self, file_name_or_name: str):
+        if self._bulk_reset_running:
+            return
+
+        refreshed = self._read_single_preset_list_metadata_light(file_name_or_name)
+        if refreshed is None:
+            self._ui_dirty = True
+            if self.isVisible():
+                self._load_presets()
+            return
+
+        normalized_file_name, metadata = refreshed
+        self._cached_presets_metadata[normalized_file_name] = metadata
+        if self.isVisible():
+            self._refresh_presets_view_from_cache()
+        else:
+            self._ui_dirty = True
+
     def _on_store_switched(self, _name: str):
         """Central store says the selected source preset switched."""
         if self._bulk_reset_running:
             return
         marker_changed = self._apply_active_preset_marker()
-        if self.isVisible() and marker_changed:
-            return
-        if not self._ui_dirty and marker_changed:
+        if marker_changed and not self._ui_dirty:
             return
         self._ui_dirty = True
         if self.isVisible():
-            self._load_presets()
+            self.refresh_presets_view_if_possible()
 
     def _apply_active_preset_marker(self) -> bool:
         if self._presets_model is None:
@@ -1657,7 +1602,7 @@ class Zapret2UserPresetsPage(BasePage):
         self._start_watching_presets()
         self._resync_layout_metrics()
         if self._ui_dirty:
-            self._load_presets()
+            self.refresh_presets_view_if_possible()
         else:
             self._update_presets_view_height()
         self._schedule_layout_resync(include_delayed=True)
@@ -1707,7 +1652,7 @@ class Zapret2UserPresetsPage(BasePage):
             store = self._get_preset_store()
             store.presets_changed.connect(self._on_store_changed)
             store.preset_switched.connect(self._on_store_switched)
-            store.preset_updated.connect(lambda _name: self._on_store_changed())
+            store.preset_updated.connect(self._on_store_updated)
         except Exception:
             pass
 
@@ -1725,7 +1670,7 @@ class Zapret2UserPresetsPage(BasePage):
         self._start_watching_presets()
         self._resync_layout_metrics()
         if self._ui_dirty:
-            self._load_presets()
+            self.refresh_presets_view_if_possible()
         else:
             self._update_presets_view_height()
         self._schedule_layout_resync(include_delayed=True)
@@ -1911,16 +1856,6 @@ class Zapret2UserPresetsPage(BasePage):
         )
         self.import_btn.clicked.connect(self._on_import_clicked)
 
-        self.folders_btn = self._create_secondary_row_button(
-            self._tr("page.z2_user_presets.button.folders", "Папки"),
-            "fa5s.sitemap",
-        )
-        set_tooltip(
-            self.folders_btn,
-            self._tr("page.z2_user_presets.tooltip.folders", "Создать папки и изменить их порядок"),
-        )
-        self.folders_btn.clicked.connect(self._on_manage_folders_clicked)
-
         self.reset_all_btn = self._create_secondary_row_button(
             self._tr("page.z2_user_presets.button.reset_all", "Вернуть заводские"),
             "fa5s.undo",
@@ -1949,7 +1884,6 @@ class Zapret2UserPresetsPage(BasePage):
         self._toolbar_buttons = [
             self.create_btn,
             self.import_btn,
-            self.folders_btn,
             self._restore_deleted_btn,
             self.reset_all_btn,
             self.presets_info_btn,
@@ -2147,12 +2081,6 @@ class Zapret2UserPresetsPage(BasePage):
             else:
                 row_widget.setVisible(False)
 
-    def _is_game_filter_preset_name(self, name: str) -> bool:
-        return "game filter" in name.lower()
-
-    def _is_all_tcp_udp_preset_name(self, name: str) -> bool:
-        return "all tcp" in name.lower()
-
     def _format_modified_timestamp(self, modified: str) -> str:
         if not modified:
             return ""
@@ -2167,13 +2095,13 @@ class Zapret2UserPresetsPage(BasePage):
         try:
             self._preset_search_timer.start(180)
         except Exception:
-            self._load_presets()
+            self._refresh_presets_view_from_cache()
 
     def _apply_preset_search(self) -> None:
         if not self.isVisible():
             self._ui_dirty = True
             return
-        self._load_presets()
+        self._refresh_presets_view_from_cache()
 
     def _update_presets_view_height(self):
         if not self._presets_model or not hasattr(self, "presets_list"):
@@ -2421,6 +2349,16 @@ class Zapret2UserPresetsPage(BasePage):
         except Exception as e:
             log(f"Ошибка загрузки пресетов: {e}", "ERROR")
 
+    def refresh_presets_view_if_possible(self) -> None:
+        if not self._ui_initialized:
+            self._ui_dirty = True
+            return
+        if self._cached_presets_metadata:
+            self._ui_dirty = False
+            self._refresh_presets_view_from_cache()
+            return
+        self._load_presets()
+
     def _refresh_presets_view_from_cache(self) -> None:
         if not self._cached_presets_metadata:
             self._load_presets()
@@ -2446,49 +2384,31 @@ class Zapret2UserPresetsPage(BasePage):
                 query = ""
 
             rows: list[dict[str, object]] = []
-            layout_rows = hierarchy.build_rows(
-                [
+            visible_entries = []
+            for file_name, meta in all_presets.items():
+                display_name = str(meta.get("display_name") or file_name)
+                if query and query not in display_name.lower():
+                    continue
+                visible_entries.append(
                     {
                         "file_name": file_name,
-                        "display_name": str(meta.get("display_name") or file_name),
+                        "display_name": display_name,
                         "is_builtin": builtin_by_file.get(file_name, False),
                     }
-                    for file_name, meta in all_presets.items()
-                ],
-                query=query,
+                )
+
+            ordered_names = hierarchy.list_presets_flat(
+                visible_entries,
                 is_builtin_resolver=lambda file_name: builtin_by_file.get(str(file_name or ""), False),
             )
 
-            for item in layout_rows:
-                kind = str(item.get("kind") or "")
-                if kind == "folder":
-                    rows.append(
-                        {
-                            "kind": "folder",
-                            "folder_id": item.get("folder_id", ""),
-                            "text": item.get("text", ""),
-                            "depth": int(item.get("depth", 0) or 0),
-                            "is_builtin_folder": bool(item.get("is_builtin_folder", False)),
-                            "is_collapsed": bool(item.get("is_collapsed", False)),
-                        }
-                    )
-                    continue
-
-                if kind != "preset":
-                    continue
-
-                file_name = str(item.get("file_name") or item.get("name") or "")
-                display_name = str(item.get("name") or file_name)
+            for file_name in ordered_names:
                 preset = all_presets.get(file_name)
                 if not preset:
                     continue
+                display_name = str(preset.get("display_name") or file_name)
                 is_builtin = builtin_by_file.get(file_name, False)
-
-                effective_folder_id = hierarchy.get_effective_folder_id(
-                    file_name,
-                    is_builtin=is_builtin,
-                    display_name=display_name,
-                )
+                meta = hierarchy.get_preset_meta(file_name, display_name=display_name)
                 rows.append(
                     {
                         "kind": "preset",
@@ -2501,10 +2421,9 @@ class Zapret2UserPresetsPage(BasePage):
                         ),
                         "is_builtin": is_builtin,
                         "icon_color": _normalize_preset_icon_color(str(preset.get("icon_color") or "")),
-                        "depth": int(item.get("depth", 0) or 0),
-                        "folder_id": effective_folder_id,
-                        "is_pinned": bool(item.get("is_pinned", False)),
-                        "rating": int(item.get("rating", 0) or 0),
+                        "depth": 0,
+                        "is_pinned": bool(meta.get("pinned", False)),
+                        "rating": int(meta.get("rating", 0) or 0),
                     }
                 )
 
@@ -2555,9 +2474,7 @@ class Zapret2UserPresetsPage(BasePage):
         handlers = {
             "activate": self._on_activate_preset,
             "open": self._open_preset_subpage,
-            "toggle_folder": self._on_toggle_folder,
             "pin": self._on_toggle_pin_preset,
-            "folder": self._on_assign_folder_preset,
             "rating": self._on_rate_preset,
             "edit": self._on_edit_preset,
             "rename": self._on_rename_preset,
@@ -2576,16 +2493,6 @@ class Zapret2UserPresetsPage(BasePage):
     def _on_preset_context_requested(self, name: str, global_pos: QPoint):
         self._on_edit_preset(name, global_pos=global_pos)
 
-    def _on_toggle_folder(self, folder_id: str):
-        try:
-            self._get_hierarchy_store().toggle_folder_collapsed(folder_id)
-            self._refresh_presets_view_from_cache()
-        except Exception as e:
-            log(f"Ошибка сворачивания папки: {e}", "ERROR")
-
-    def _on_manage_folders_clicked(self):
-        self.folders_open_requested.emit()
-
     def _on_toggle_pin_preset(self, name: str):
         try:
             display_name = self._resolve_display_name(name)
@@ -2595,48 +2502,13 @@ class Zapret2UserPresetsPage(BasePage):
         except Exception as e:
             log(f"Ошибка закрепления пресета: {e}", "ERROR")
 
-    def _on_assign_folder_preset(self, name: str):
-        try:
-            display_name = self._resolve_display_name(name)
-            if self._is_builtin_preset_file(name):
-                InfoBar.warning(
-                    title=self._tr("common.error.title", "Ошибка"),
-                    content="Встроенные пресеты остаются в системных папках. Для них перенос в пользовательскую папку отключён.",
-                    parent=self.window(),
-                )
-                return
-
-            hierarchy = self._get_hierarchy_store()
-            current_folder_id = hierarchy.get_effective_folder_id(name, is_builtin=False, display_name=display_name)
-            choices = hierarchy.get_folder_choices(include_root=True)
-            dlg = _PresetFolderDialog(
-                preset_name=display_name,
-                folder_choices=choices,
-                current_folder_id=current_folder_id,
-                parent=self.window(),
-                language=self._ui_language,
-            )
-            if not dlg.exec():
-                return
-            target_folder_id = dlg.selected_folder_id()
-            hierarchy.move_preset_to_folder_end(
-                self._list_preset_entries_light(),
-                name,
-                target_folder_id,
-                is_builtin_resolver=self._is_builtin_preset_file,
-            )
-            log(f"Пресет '{display_name}' перемещён в папку", "INFO")
-            self._refresh_presets_view_from_cache()
-        except Exception as e:
-            log(f"Ошибка перемещения пресета в папку: {e}", "ERROR")
-
     def _on_rate_preset(self, name: str):
         self._show_rating_menu(name)
 
     def _move_preset_by_step(self, name: str, direction: int):
         try:
             hierarchy = self._get_hierarchy_store()
-            moved = hierarchy.move_preset_by_step(
+            moved = hierarchy.move_preset_by_step_flat(
                 self._list_preset_entries_light(),
                 name,
                 direction,
@@ -2652,30 +2524,21 @@ class Zapret2UserPresetsPage(BasePage):
             hierarchy = self._get_hierarchy_store()
             all_names = self._list_preset_entries_light()
 
-            if source_kind == "folder":
-                moved = False
-                if target_kind == "folder" and target_id:
-                    moved = hierarchy.move_folder_before(source_id, target_id)
-                if moved:
-                    self._refresh_presets_view_from_cache()
-                return
-
             if source_kind != "preset":
                 return
 
             moved = False
             if target_kind == "preset" and target_id:
-                moved = hierarchy.move_preset_before(
+                moved = hierarchy.move_preset_before_flat(
                     all_names,
                     source_id,
                     target_id,
                     is_builtin_resolver=self._is_builtin_preset_file,
                 )
             else:
-                moved = hierarchy.move_preset_to_folder_end(
+                moved = hierarchy.move_preset_to_end_flat(
                     all_names,
                     source_id,
-                    target_id,
                     is_builtin_resolver=self._is_builtin_preset_file,
                 )
             if moved:
@@ -2773,11 +2636,6 @@ class Zapret2UserPresetsPage(BasePage):
             menu.addAction(move_up_action)
             menu.addAction(move_down_action)
             if not is_builtin:
-                folder_action = _make_menu_action(
-                    self._tr("page.z2_user_presets.menu.folder", "Переместить в папку"),
-                    icon=_fluent_icon("FOLDER"),
-                    parent=menu,
-                )
                 rename_action = _make_menu_action(
                     self._tr("page.z2_user_presets.menu.rename", "Переименовать"),
                     icon=_fluent_icon("RENAME"),
@@ -2788,10 +2646,8 @@ class Zapret2UserPresetsPage(BasePage):
                     icon=_fluent_icon("DELETE"),
                     parent=menu,
                 )
-                folder_action.triggered.connect(lambda: self._on_assign_folder_preset(name))
                 rename_action.triggered.connect(lambda: self._on_rename_preset(name))
                 delete_action.triggered.connect(lambda: self._on_delete_preset(name))
-                menu.addAction(folder_action)
                 menu.addAction(rename_action)
             menu.addAction(duplicate_action)
             menu.addAction(export_action)
@@ -2808,11 +2664,9 @@ class Zapret2UserPresetsPage(BasePage):
         rating_action = menu.addAction(self._tr("page.z2_user_presets.menu.rating", "Рейтинг"))
         move_up_action = menu.addAction(self._tr("page.z2_user_presets.menu.move_up", "Переместить выше"))
         move_down_action = menu.addAction(self._tr("page.z2_user_presets.menu.move_down", "Переместить ниже"))
-        folder_action = None
         rename_action = None
         delete_action = None
         if not is_builtin:
-            folder_action = menu.addAction(self._tr("page.z2_user_presets.menu.folder", "Переместить в папку"))
             rename_action = menu.addAction(self._tr("page.z2_user_presets.menu.rename", "Переименовать"))
         duplicate_action = menu.addAction(self._tr("page.z2_user_presets.menu.duplicate", "Дублировать"))
         export_action = menu.addAction(self._tr("page.z2_user_presets.menu.export", "Экспорт"))
@@ -2822,8 +2676,6 @@ class Zapret2UserPresetsPage(BasePage):
         chosen = menu.exec(QCursor.pos())
         if chosen == open_action:
             self._open_preset_subpage(name)
-        elif chosen == folder_action:
-            self._on_assign_folder_preset(name)
         elif chosen == rating_action:
             self._show_rating_menu(name)
         elif chosen == move_up_action:
@@ -3057,7 +2909,18 @@ class Zapret2UserPresetsPage(BasePage):
                     self._get_hierarchy_store().delete_preset_meta(name, display_name=self._resolve_display_name(name))
                 except Exception:
                     pass
-                self._load_presets()
+                normalized_name = str(name or "").strip()
+                if normalized_name:
+                    self._cached_presets_metadata.pop(normalized_name, None)
+                    if not normalized_name.lower().endswith(".txt"):
+                        self._cached_presets_metadata.pop(f"{normalized_name}.txt", None)
+                if self.isVisible() and self._cached_presets_metadata:
+                    self._ui_dirty = False
+                    self._refresh_presets_view_from_cache()
+                else:
+                    self._ui_dirty = True
+                    if self.isVisible():
+                        self._load_presets()
                 return
             InfoBar.error(
                 title=self._tr("common.error.title", "Ошибка"),
@@ -3226,13 +3089,6 @@ class Zapret2UserPresetsPage(BasePage):
         if self.import_btn is not None:
             self.import_btn.setText(self._tr("page.z2_user_presets.button.import", "Импорт"))
             set_tooltip(self.import_btn, self._tr("page.z2_user_presets.tooltip.import", "Импорт пресета из файла"))
-        if self.folders_btn is not None:
-            self.folders_btn.setText(self._tr("page.z2_user_presets.button.folders", "Папки"))
-            set_tooltip(
-                self.folders_btn,
-                self._tr("page.z2_user_presets.tooltip.folders", "Создать папки и изменить их порядок"),
-            )
-
         if self.reset_all_btn is not None:
             current_text = self.reset_all_btn.text() or ""
             if "/" not in current_text:
@@ -3259,4 +3115,4 @@ class Zapret2UserPresetsPage(BasePage):
             self._presets_delegate.set_ui_language(self._ui_language)
 
         self._update_toolbar_buttons_layout()
-        self._load_presets()
+        self._refresh_presets_view_from_cache()

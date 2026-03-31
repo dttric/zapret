@@ -4,7 +4,9 @@
 При клике на target открывается отдельная страница StrategyDetailPage.
 """
 
-from PyQt6.QtCore import Qt, pyqtSignal, QTimer, QSize
+import time as _time
+
+from PyQt6.QtCore import Qt, pyqtSignal, QTimer, QSize, QEvent
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout,
     QFrame, QSizePolicy
@@ -26,6 +28,14 @@ except ImportError:
     from PyQt6.QtWidgets import QLabel as BodyLabel, QLabel as CaptionLabel, QPushButton as PushButton
     TransparentPushButton = PushButton
     _HAS_FLUENT_LABELS = False
+
+
+def _log_startup_z2_direct_metric(section: str, elapsed_ms: float) -> None:
+    try:
+        rounded = int(round(float(elapsed_ms)))
+    except Exception:
+        rounded = 0
+    log(f"⏱ Startup UI Section: ZAPRET2_DIRECT {section} {rounded}ms", "⏱ STARTUP")
 
 class Zapret2StrategiesPageNew(BasePage):
     """
@@ -92,16 +102,27 @@ class Zapret2StrategiesPageNew(BasePage):
         self._strategy_set_snapshot = None
         self._ui_state_store = None
         self._ui_state_unsubscribe = None
+        self._basic_payload_cache = None
         self._telegram_hint_label = None
         self._telegram_btn = None
         self._expand_btn = None
         self._collapse_btn = None
         self._info_btn = None
         self._back_btn = None
+        self._render_probe_build_started_at = None
+        self._render_probe_build_finished_at = None
+        self._render_probe_first_paint_logged = False
+        self._render_probe_idle_logged = False
 
         # Совместимость со старым кодом
         self.content_layout = self.layout
         self.content_container = self.content
+
+        try:
+            self.viewport().installEventFilter(self)
+            self.content.installEventFilter(self)
+        except Exception:
+            pass
 
         # Заглушки для совместимости с main_window.py
         self.select_strategy_btn = PushButton()
@@ -165,23 +186,54 @@ class Zapret2StrategiesPageNew(BasePage):
             self._build_scheduled = True
             QTimer.singleShot(0, self._build_content)
 
+    def eventFilter(self, obj, event):
+        try:
+            if (
+                event.type() == QEvent.Type.Paint
+                and not self._render_probe_first_paint_logged
+                and self._render_probe_build_finished_at is not None
+                and obj in {self.viewport(), self.content}
+            ):
+                self._render_probe_first_paint_logged = True
+                finished_at = self._render_probe_build_finished_at
+                build_started_at = self._render_probe_build_started_at
+                if finished_at is not None:
+                    _log_startup_z2_direct_metric(
+                        "_build_content.render.first_paint_after_build",
+                        (_time.perf_counter() - finished_at) * 1000,
+                    )
+                if build_started_at is not None:
+                    _log_startup_z2_direct_metric(
+                        "_build_content.render.total_to_first_paint",
+                        (_time.perf_counter() - build_started_at) * 1000,
+                    )
+        except Exception:
+            pass
+        return super().eventFilter(obj, event)
+
     def _build_content(self):
         """Строит содержимое страницы"""
+        _t_total = _time.perf_counter()
         try:
             self._build_scheduled = False
             if self._built:
                 return
+            self._render_probe_build_started_at = _t_total
+            self._render_probe_build_finished_at = None
+            self._render_probe_first_paint_logged = False
+            self._render_probe_idle_logged = False
 
-            from core.presets.direct_facade import DirectPresetFacade
-
-            facade = DirectPresetFacade.from_launch_method("direct_zapret2")
-            payload = facade.get_basic_ui_payload()
+            _t_payload = _time.perf_counter()
+            payload = self._get_basic_payload(refresh=True, startup_scope="ZAPRET2_DIRECT")
             target_views = list(payload.target_views or ())
             target_items = payload.target_items or {}
             self.target_selections = payload.strategy_selections or {}
+            strategy_names_by_target = payload.strategy_names_by_target or {}
             filter_modes = payload.filter_modes or {}
+            _log_startup_z2_direct_metric("_build_content.payload", (_time.perf_counter() - _t_payload) * 1000)
 
             # Карточка с кнопкой Telegram (выделенная, акцентная)
+            _t_telegram = _time.perf_counter()
             telegram_card = SettingsCard()
             telegram_layout = QHBoxLayout()
             telegram_layout.setContentsMargins(0, 0, 0, 0)
@@ -216,8 +268,10 @@ class Zapret2StrategiesPageNew(BasePage):
 
             telegram_card.add_layout(telegram_layout)
             self.content_layout.addWidget(telegram_card)
+            _log_startup_z2_direct_metric("_build_content.telegram_card", (_time.perf_counter() - _t_telegram) * 1000)
 
             # Панель действий (toolbar)
+            _t_toolbar = _time.perf_counter()
             actions_card = SettingsCard()
             actions_layout = QHBoxLayout()
             actions_layout.setSpacing(8)
@@ -255,11 +309,16 @@ class Zapret2StrategiesPageNew(BasePage):
 
             actions_card.add_layout(actions_layout)
             self.content_layout.addWidget(actions_card)
+            _log_startup_z2_direct_metric("_build_content.toolbar", (_time.perf_counter() - _t_toolbar) * 1000)
 
             # Выборы уже загружены в начале _build_content()
 
             # Список target'ов (без правой панели - теперь отдельная страница)
-            self._targets_list = PresetTargetsList(self, strategy_name_resolver=self._strategy_name)
+            _t_targets = _time.perf_counter()
+            self._targets_list = PresetTargetsList(
+                self,
+                startup_scope="ZAPRET2_DIRECT",
+            )
             self._targets_list.strategy_selected.connect(self._on_target_clicked)
             self._targets_list.selections_changed.connect(self._on_selections_changed)
 
@@ -268,10 +327,12 @@ class Zapret2StrategiesPageNew(BasePage):
                 target_views,
                 metadata=target_items,
                 selections=self.target_selections,
+                strategy_names_by_target=strategy_names_by_target,
                 filter_modes=filter_modes,
             )
 
             self.content_layout.addWidget(self._targets_list, 1)
+            _log_startup_z2_direct_metric("_build_content.targets_list", (_time.perf_counter() - _t_targets) * 1000)
 
             # Запоминаем текущий UI-режим direct_zapret2, чтобы понимать,
             # нужно ли перестраивать страницу после возврата.
@@ -283,12 +344,27 @@ class Zapret2StrategiesPageNew(BasePage):
 
             self._built = True
             log("Zapret2StrategiesPageNew построена", "INFO")
+            _log_startup_z2_direct_metric("_build_content.total", (_time.perf_counter() - _t_total) * 1000)
+            self._render_probe_build_finished_at = _time.perf_counter()
+            QTimer.singleShot(0, self._log_render_probe_idle)
 
         except Exception as e:
             self._build_scheduled = False
             log(f"Ошибка построения Zapret2StrategiesPageNew: {e}", "ERROR")
             import traceback
             log(traceback.format_exc(), "DEBUG")
+
+    def _log_render_probe_idle(self) -> None:
+        if self._render_probe_idle_logged:
+            return
+        finished_at = self._render_probe_build_finished_at
+        if finished_at is None:
+            return
+        self._render_probe_idle_logged = True
+        _log_startup_z2_direct_metric(
+            "_build_content.render.next_event_loop",
+            (_time.perf_counter() - finished_at) * 1000,
+        )
 
     def _on_target_clicked(self, target_key: str, strategy_id: str):
         """Обработчик клика по target - открывает страницу выбора стратегий"""
@@ -368,6 +444,7 @@ class Zapret2StrategiesPageNew(BasePage):
             # Перестраиваем UI
             self._built = False
             self._build_scheduled = False
+            self._basic_payload_cache = None
 
             # Удаляем старые виджеты, сохраняя заголовки.
             # Ищем subtitle_label динамически, т.к. back_button может быть
@@ -402,23 +479,17 @@ class Zapret2StrategiesPageNew(BasePage):
         Вызывается асинхронно из MainWindow после активации пресета.
         """
         try:
-            from core.presets.direct_facade import DirectPresetFacade
-
-            facade = DirectPresetFacade.from_launch_method("direct_zapret2")
-            payload = facade.get_basic_ui_payload()
+            payload = self._get_basic_payload(refresh=True)
             target_items = payload.target_items or {}
             self.target_selections = payload.strategy_selections or {}
             filter_modes = payload.filter_modes or {}
 
             if self._targets_list:
+                self._targets_list.set_strategy_names_by_target(payload.strategy_names_by_target or {})
                 self._targets_list.set_selections(self.target_selections)
 
                 # Sync badges for ALL targets so stale/invalid badges disappear.
-                for target_key in target_items.keys():
-                    try:
-                        self._targets_list.update_filter_mode(target_key, (filter_modes or {}).get(target_key))
-                    except Exception:
-                        continue
+                self._targets_list.set_filter_modes(filter_modes, target_keys=target_items.keys())
 
             # Совместимость: обновить счетчик активных
             self._update_current_strategies_display()
@@ -426,20 +497,15 @@ class Zapret2StrategiesPageNew(BasePage):
         except Exception as e:
             log(f"Ошибка refresh_from_preset_switch: {e}", "DEBUG")
 
-    def _strategy_name(self, target_key: str, strategy_id: str) -> str:
-        sid = (strategy_id or "").strip() or "none"
-        if sid == "none":
-            return tr_catalog("page.z2_direct.strategy.off", language=self._ui_language, default="Отключено")
-        if sid == "custom":
-            return tr_catalog("page.z2_direct.strategy.custom", language=self._ui_language, default="Свой набор")
-        try:
-            from core.presets.direct_facade import DirectPresetFacade
+    def _get_direct_facade(self):
+        from core.presets.direct_facade import DirectPresetFacade
 
-            strategies = DirectPresetFacade.from_launch_method("direct_zapret2").get_target_strategies(target_key) or {}
-            entry = strategies.get(sid) or {}
-            return str(entry.get("name") or sid)
-        except Exception:
-            return sid
+        return DirectPresetFacade.from_launch_method("direct_zapret2")
+
+    def _get_basic_payload(self, *, refresh: bool = False, startup_scope: str | None = None):
+        if refresh or self._basic_payload_cache is None:
+            self._basic_payload_cache = self._get_direct_facade().get_basic_ui_payload(startup_scope=startup_scope)
+        return self._basic_payload_cache
 
     def _expand_all(self):
         """Разворачивает все группы"""
@@ -539,6 +605,7 @@ class Zapret2StrategiesPageNew(BasePage):
 
     def reload_for_mode_change(self):
         """Совместимость: перезагружает страницу при смене режима"""
+        self._basic_payload_cache = None
         self._reload_strategies()
 
     def _show_info_popup(self):

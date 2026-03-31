@@ -7,8 +7,10 @@ Legacy note:
 - this widget remains mainly for orchestra / registry-driven list pages.
 """
 
+import time as _time
+
 from types import SimpleNamespace
-from typing import Callable, Dict, Optional, Set
+from typing import Callable, Dict, Iterable, Optional, Set
 from PyQt6.QtWidgets import QWidget, QVBoxLayout
 from PyQt6.QtCore import pyqtSignal
 
@@ -68,7 +70,13 @@ class UnifiedStrategiesList(QWidget):
         "hostlists", "github", "ipsets", "vpn", "user", "default"
     ]
 
-    def __init__(self, parent=None, *, strategy_name_resolver: Callable[[str, str], str] | None = None):
+    def __init__(
+        self,
+        parent=None,
+        *,
+        strategy_name_resolver: Callable[[str, str], str] | None = None,
+        startup_scope: str | None = None,
+    ):
         super().__init__(parent)
         self._targets = {}  # {target_key: TargetInfo}
         self._selections = {}  # {target_key: strategy_id}
@@ -76,10 +84,23 @@ class UnifiedStrategiesList(QWidget):
         self._groups = {}  # {group_key: CollapsibleGroup}
         self._items = {}  # {target_key: StrategyRadioItem}
         self._target_to_group = {}  # {target_key: group_key}
+        self._strategy_names_by_target = {}  # {target_key: {strategy_id: strategy_name}}
         self._built = False
         self._strategy_name_resolver = strategy_name_resolver
+        self._startup_scope = str(startup_scope or "").strip() or None
 
         self._build_ui()
+
+    def _log_startup_metric(self, section: str, elapsed_ms: float, *, extra: str | None = None) -> None:
+        scope = self._startup_scope
+        if not scope:
+            return
+        try:
+            rounded = int(round(float(elapsed_ms)))
+        except Exception:
+            rounded = 0
+        suffix = f" ({extra})" if extra else ""
+        log(f"⏱ Startup UI Section: {scope} {section} {rounded}ms{suffix}", "⏱ STARTUP")
 
     def set_strategy_name_resolver(self, resolver: Callable[[str, str], str] | None) -> None:
         self._strategy_name_resolver = resolver
@@ -153,16 +174,46 @@ class UnifiedStrategiesList(QWidget):
         target_views,
         metadata: Optional[Dict[str, object]] = None,
         selections: Optional[Dict[str, str]] = None,
+        strategy_names_by_target: Optional[Dict[str, Dict[str, str]]] = None,
         filter_modes: Optional[Dict[str, str]] = None,
     ) -> None:
         """Build the direct list from PresetTargetView[] plus optional metadata."""
+        _t_total = _time.perf_counter()
+        target_views = tuple(target_views or ())
+        view_count = len(target_views)
+        metadata_count = len(metadata or {})
+
+        _t_metadata = _time.perf_counter()
         targets = self._build_targets_from_views(target_views, metadata)
-        self.build_list(targets, selections=selections, filter_modes=filter_modes)
+        self._log_startup_metric(
+            "_build_content.targets_list.build_from_target_views.metadata",
+            (_time.perf_counter() - _t_metadata) * 1000,
+            extra=f"views={view_count}, metadata={metadata_count}, built_targets={len(targets)}",
+        )
+
+        _t_build = _time.perf_counter()
+        self.build_list(
+            targets,
+            selections=selections,
+            strategy_names_by_target=strategy_names_by_target,
+            filter_modes=filter_modes,
+        )
+        self._log_startup_metric(
+            "_build_content.targets_list.build_from_target_views.build_list",
+            (_time.perf_counter() - _t_build) * 1000,
+            extra=f"targets={len(targets)}",
+        )
+        self._log_startup_metric(
+            "_build_content.targets_list.build_from_target_views.total",
+            (_time.perf_counter() - _t_total) * 1000,
+            extra=f"targets={len(targets)}",
+        )
 
     def build_list(
         self,
         targets: Dict,
         selections: Optional[Dict[str, str]] = None,
+        strategy_names_by_target: Optional[Dict[str, Dict[str, str]]] = None,
         filter_modes: Optional[Dict[str, str]] = None,
     ):
         """
@@ -176,11 +227,14 @@ class UnifiedStrategiesList(QWidget):
             log("UnifiedStrategiesList: список уже построен, пропускаем", "DEBUG")
             return
 
+        _t_total = _time.perf_counter()
         self._targets = targets
         self._selections = selections or {}
+        self.set_strategy_names_by_target(strategy_names_by_target or {})
         self._filter_modes = filter_modes or {}
 
         # Группируем target'ы по command_group из metadata enrichment слоя.
+        _t_grouping = _time.perf_counter()
         grouped = {}  # {group_key: [target_key, ...]}
         for target_key, target_info in targets.items():
             group_key = getattr(target_info, 'command_group', 'default') or 'default'
@@ -188,8 +242,21 @@ class UnifiedStrategiesList(QWidget):
                 grouped[group_key] = []
             grouped[group_key].append(target_key)
             self._target_to_group[target_key] = group_key
+        self._log_startup_metric(
+            "_build_content.targets_list.build_list.grouping",
+            (_time.perf_counter() - _t_grouping) * 1000,
+            extra=f"targets={len(targets)}, groups={len(grouped)}",
+        )
 
         # Создаем группы в порядке GROUP_ORDER
+        sort_elapsed_ms = 0.0
+        create_group_elapsed_ms = 0.0
+        create_item_elapsed_ms = 0.0
+        add_item_elapsed_ms = 0.0
+        insert_group_elapsed_ms = 0.0
+        created_groups = 0
+        created_items = 0
+
         for group_key in self.GROUP_ORDER:
             if group_key not in grouped:
                 continue
@@ -199,29 +266,73 @@ class UnifiedStrategiesList(QWidget):
                 continue
 
             # Сортируем target внутри группы по order
+            _t_sort = _time.perf_counter()
             target_keys.sort(key=lambda k: getattr(targets[k], 'order', 999))
+            sort_elapsed_ms += (_time.perf_counter() - _t_sort) * 1000
 
             # Создаем группу
             group_name = self.GROUP_NAMES.get(group_key, group_key.title())
+            _t_create_group = _time.perf_counter()
             group = CollapsibleGroup(group_key, group_name, self)
             group.toggled.connect(self._on_group_toggled)
+            create_group_elapsed_ms += (_time.perf_counter() - _t_create_group) * 1000
+            created_groups += 1
 
             # Добавляем target в группу
             for target_key in target_keys:
                 target_info = targets[target_key]
+                _t_create_item = _time.perf_counter()
                 item = self._create_target_item(target_key, target_info)
+                create_item_elapsed_ms += (_time.perf_counter() - _t_create_item) * 1000
+
+                _t_add_item = _time.perf_counter()
                 group.add_widget(item)
+                add_item_elapsed_ms += (_time.perf_counter() - _t_add_item) * 1000
                 self._items[target_key] = item
+                created_items += 1
 
             self._groups[group_key] = group
             # Вставляем перед stretch
+            _t_insert_group = _time.perf_counter()
             self._content_layout.insertWidget(
                 self._content_layout.count() - 1, group
             )
+            insert_group_elapsed_ms += (_time.perf_counter() - _t_insert_group) * 1000
+
+        self._log_startup_metric(
+            "_build_content.targets_list.build_list.group_sorting",
+            sort_elapsed_ms,
+            extra=f"groups={created_groups}",
+        )
+        self._log_startup_metric(
+            "_build_content.targets_list.build_list.create_groups",
+            create_group_elapsed_ms,
+            extra=f"groups={created_groups}",
+        )
+        self._log_startup_metric(
+            "_build_content.targets_list.build_list.create_items",
+            create_item_elapsed_ms,
+            extra=f"targets={created_items}",
+        )
+        self._log_startup_metric(
+            "_build_content.targets_list.build_list.add_items",
+            add_item_elapsed_ms,
+            extra=f"targets={created_items}",
+        )
+        self._log_startup_metric(
+            "_build_content.targets_list.build_list.insert_groups",
+            insert_group_elapsed_ms,
+            extra=f"groups={created_groups}",
+        )
 
         self._built = True
         log(f"UnifiedStrategiesList: построено {len(self._groups)} групп, "
             f"{len(self._items)} target", "INFO")
+        self._log_startup_metric(
+            "_build_content.targets_list.build_list.total",
+            (_time.perf_counter() - _t_total) * 1000,
+            extra=f"groups={len(self._groups)}, targets={len(self._items)}",
+        )
 
     def _get_strategy_name(self, target_key: str, strategy_id: str) -> str:
         """Получает название стратегии по ID без старого registry как источника истины."""
@@ -230,6 +341,10 @@ class UnifiedStrategiesList(QWidget):
             return "Отключено"
         if sid == "custom":
             return "Свой набор"
+        target_names = self._strategy_names_by_target.get(str(target_key or "").strip(), {})
+        resolved = str(target_names.get(sid) or "").strip()
+        if resolved:
+            return resolved
         resolver = self._strategy_name_resolver
         if callable(resolver):
             try:
@@ -394,6 +509,118 @@ class UnifiedStrategiesList(QWidget):
 
     def update_filter_mode(self, target_key: str, filter_mode: str):
         """Updates hostlist/ipset badge for a target (UI-only)."""
+        self._apply_filter_mode(target_key, filter_mode)
+
+    def get_selections(self) -> Dict[str, str]:
+        """Возвращает текущие выборы"""
+        return self._selections.copy()
+
+    def set_selections(self, selections: Optional[Dict[str, str]]):
+        """Устанавливает выборы для всех target'ов."""
+        selections = selections or {}
+        _t_total = _time.perf_counter()
+        resolve_names_elapsed_ms = 0.0
+        apply_to_items_elapsed_ms = 0.0
+
+        # IMPORTANT:
+        # Source preset может вернуть разреженный словарь только для target'ов,
+        # которые реально есть в текущем пресете. Если обновлять только
+        # пришедшие ключи, отсутствующие target'ы сохранят старое состояние UI.
+        # UI state (stale "enabled" labels). Always sync every visible item.
+
+        new_selections: Dict[str, str] = {}
+        for target_key in (self._items or {}).keys():
+            strategy_id = (selections.get(target_key) or "none")
+            new_selections[target_key] = strategy_id
+
+            item = self._items.get(target_key)
+            if item:
+                _t_resolve = _time.perf_counter()
+                strategy_name = self._get_strategy_name(target_key, strategy_id)
+                resolve_names_elapsed_ms += (_time.perf_counter() - _t_resolve) * 1000
+
+                _t_apply = _time.perf_counter()
+                item.set_strategy(strategy_id, strategy_name)
+                apply_to_items_elapsed_ms += (_time.perf_counter() - _t_apply) * 1000
+
+        # Сохраняем лишние ключи на случай, если в пресете есть target,
+        # который ещё не попал в текущий список UI.
+        for target_key, strategy_id in selections.items():
+            if target_key not in new_selections:
+                new_selections[target_key] = strategy_id
+
+        self._selections = new_selections
+        self._log_startup_metric(
+            "targets_list.set_selections.resolve_names",
+            resolve_names_elapsed_ms,
+            extra=f"visible_targets={len(self._items)}, incoming={len(selections)}",
+        )
+        self._log_startup_metric(
+            "targets_list.set_selections.apply_to_items",
+            apply_to_items_elapsed_ms,
+            extra=f"visible_targets={len(self._items)}",
+        )
+        self._log_startup_metric(
+            "targets_list.set_selections.total",
+            (_time.perf_counter() - _t_total) * 1000,
+            extra=f"visible_targets={len(self._items)}, stored={len(self._selections)}",
+        )
+
+    def set_strategy_names_by_target(self, strategy_names_by_target: Optional[Dict[str, Dict[str, str]]]) -> None:
+        names = strategy_names_by_target or {}
+        normalized: Dict[str, Dict[str, str]] = {}
+        for target_key, strategy_map in names.items():
+            key = str(target_key or "").strip()
+            if not key:
+                continue
+            normalized[key] = {
+                str(strategy_id or "").strip(): str(strategy_name or "").strip()
+                for strategy_id, strategy_name in (strategy_map or {}).items()
+                if str(strategy_id or "").strip()
+            }
+        self._strategy_names_by_target = normalized
+
+    def set_filter_modes(
+        self,
+        filter_modes: Optional[Dict[str, str]],
+        *,
+        target_keys: Optional[Iterable[str]] = None,
+    ) -> None:
+        """Пакетно обновляет badge Hostlist/IPset и пишет одну агрегированную метрику."""
+        modes = filter_modes or {}
+        keys = list(target_keys) if target_keys is not None else list((self._items or {}).keys())
+        _t_total = _time.perf_counter()
+
+        updated_count = 0
+        for target_key in keys:
+            self._apply_filter_mode(target_key, modes.get(target_key) or "")
+            updated_count += 1
+
+        self._log_startup_metric(
+            "targets_list.set_filter_modes.total",
+            (_time.perf_counter() - _t_total) * 1000,
+            extra=f"updated={updated_count}",
+        )
+
+    def reset_filters(self):
+        """Сбрасывает фильтры"""
+        self._filter_group.reset()
+
+    def expand_all(self):
+        """Разворачивает все группы"""
+        for group in self._groups.values():
+            group.set_expanded(True)
+
+    def collapse_all(self):
+        """Сворачивает все группы"""
+        for group in self._groups.values():
+            group.set_expanded(False)
+
+    def get_target_item(self, target_key: str) -> Optional[StrategyRadioItem]:
+        """Возвращает элемент target."""
+        return self._items.get(target_key)
+
+    def _apply_filter_mode(self, target_key: str, filter_mode: str) -> None:
         target_info = self._targets.get(target_key)
         item = self._items.get(target_key)
 
@@ -426,53 +653,3 @@ class UnifiedStrategiesList(QWidget):
         self._filter_modes[target_key] = mode
         if item:
             item.set_list_type(mode)
-
-    def get_selections(self) -> Dict[str, str]:
-        """Возвращает текущие выборы"""
-        return self._selections.copy()
-
-    def set_selections(self, selections: Optional[Dict[str, str]]):
-        """Устанавливает выборы для всех target'ов."""
-        selections = selections or {}
-
-        # IMPORTANT:
-        # Source preset может вернуть разреженный словарь только для target'ов,
-        # которые реально есть в текущем пресете. Если обновлять только
-        # пришедшие ключи, отсутствующие target'ы сохранят старое состояние UI.
-        # UI state (stale "enabled" labels). Always sync every visible item.
-
-        new_selections: Dict[str, str] = {}
-        for target_key in (self._items or {}).keys():
-            strategy_id = (selections.get(target_key) or "none")
-            new_selections[target_key] = strategy_id
-
-            item = self._items.get(target_key)
-            if item:
-                strategy_name = self._get_strategy_name(target_key, strategy_id)
-                item.set_strategy(strategy_id, strategy_name)
-
-        # Сохраняем лишние ключи на случай, если в пресете есть target,
-        # который ещё не попал в текущий список UI.
-        for target_key, strategy_id in selections.items():
-            if target_key not in new_selections:
-                new_selections[target_key] = strategy_id
-
-        self._selections = new_selections
-
-    def reset_filters(self):
-        """Сбрасывает фильтры"""
-        self._filter_group.reset()
-
-    def expand_all(self):
-        """Разворачивает все группы"""
-        for group in self._groups.values():
-            group.set_expanded(True)
-
-    def collapse_all(self):
-        """Сворачивает все группы"""
-        for group in self._groups.values():
-            group.set_expanded(False)
-
-    def get_target_item(self, target_key: str) -> Optional[StrategyRadioItem]:
-        """Возвращает элемент target."""
-        return self._items.get(target_key)

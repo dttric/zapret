@@ -835,9 +835,10 @@ class DPIController:
             method_name = "классический"
         self.app.set_status(f"🚀 Запуск DPI ({method_name}): {mode_name}")
         
-        # ✅ Показываем спиннер загрузки
-        if hasattr(self.app, 'main_window') and hasattr(self.app.main_window, 'strategies_page'):
-            self.app.main_window.strategies_page.show_loading()
+        # Показываем индикатор только на уже загруженной странице стратегий
+        # для активного метода запуска, без старого обязательного attr-контракта.
+        if hasattr(self.app, 'main_window') and hasattr(self.app.main_window, '_show_active_strategy_page_loading'):
+            self.app.main_window._show_active_strategy_page_loading()
         
         store = getattr(self.app, "ui_state_store", None)
         if store is not None:
@@ -899,9 +900,8 @@ class DPIController:
             method_name = "классический"
         self.app.set_status(f"🛑 Остановка DPI ({method_name})...")
         
-        # ✅ Показываем спиннер загрузки
-        if hasattr(self.app, 'main_window') and hasattr(self.app.main_window, 'strategies_page'):
-            self.app.main_window.strategies_page.show_loading()
+        if hasattr(self.app, 'main_window') and hasattr(self.app.main_window, '_show_active_strategy_page_loading'):
+            self.app.main_window._show_active_strategy_page_loading()
         
         store = getattr(self.app, "ui_state_store", None)
         if store is not None:
@@ -968,9 +968,8 @@ class DPIController:
             if store is not None:
                 store.set_dpi_busy(False)
 
-            # ✅ Показываем галочку успеха (скрываем спиннер)
-            if hasattr(self.app, 'main_window') and hasattr(self.app.main_window, 'strategies_page'):
-                self.app.main_window.strategies_page.show_success()
+            if hasattr(self.app, 'main_window') and hasattr(self.app.main_window, '_show_active_strategy_page_success'):
+                self.app.main_window._show_active_strategy_page_success()
             
             if success:
                 # ✅ РЕАЛЬНАЯ ПРОВЕРКА: процесс действительно запущен?
@@ -1077,9 +1076,8 @@ class DPIController:
             if store is not None:
                 store.set_dpi_busy(False)
 
-            # ✅ Показываем галочку (скрываем спиннер)
-            if hasattr(self.app, 'main_window') and hasattr(self.app.main_window, 'strategies_page'):
-                self.app.main_window.strategies_page.show_success()
+            if hasattr(self.app, 'main_window') and hasattr(self.app.main_window, '_show_active_strategy_page_success'):
+                self.app.main_window._show_active_strategy_page_success()
             
             if success:
                 # ✅ РЕАЛЬНАЯ ПРОВЕРКА: процесс действительно остановлен?

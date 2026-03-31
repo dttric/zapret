@@ -134,7 +134,6 @@ name = TankiX Revive
 author = hz
 label = game
 description = fake multisplit seqovl md5sig (dup + fake + multisplit)
---out-range=-n3
 --lua-desync=send:repeats=2:tcp_md5
 --lua-desync=fake:blob=0x0F0F0F0F:tcp_md5
 --lua-desync=multisplit:pos=sld+1:seqovl=2:tcp_md5
@@ -173,7 +172,6 @@ description = fake multisplit md5sig
 name = YTDisBystro 3.4 v1 (2)
 author = hz
 description = Мульти нарезка с md5sig и фейком HTTP
---out-range=-n3
 --lua-desync=send:repeats=2:tcp_md5:ip_autottl=0,3-20:ip6_autottl=0,3-20
 --lua-desync=fake:blob=fake_default_http:tcp_md5:ip_autottl=0,3-20:ip6_autottl=0,3-20
 --lua-desync=multisplit:pos=2,midsld
@@ -376,7 +374,6 @@ name = 📦 HTTP Dup + Fake + Disorder
 author = Custom
 label = recommended
 description = Дублирование + фейки + disorder
---out-range=-n3
 --lua-desync=send:repeats=2:tcp_md5
 --lua-desync=fake:blob=fake_default_http:repeats=4:ip_ttl=2:ip6_ttl=2:tcp_md5
 --lua-desync=multidisorder:pos=host+1
@@ -413,7 +410,6 @@ name = 🔥 HTTP Ultimate (porno365)
 author = Custom
 label = caution
 description = Максимальная комбинация всех техник для упорных DPI
---out-range=-n3
 --lua-desync=send:repeats=2:tcp_md5:ip_autottl=2,3-20:ip6_autottl=2,3-20
 --lua-desync=fake:blob=fake_default_http:repeats=8:ip_ttl=1:ip6_ttl=1:tcp_md5
 --lua-desync=multidisorder:pos=1,method+2,host+1
@@ -507,7 +503,6 @@ name = 💋 Porno365 v4 (Dup+Fake+Split)
 author = Custom
 label = caution
 description = Дублирование + фейки + многопозиционный split
---out-range=-n3
 --lua-desync=send:repeats=3:tcp_md5
 --lua-desync=fake:blob=fake_default_http:repeats=8:ip_ttl=1:ip6_ttl=1:tcp_md5
 --lua-desync=multidisorder:pos=1,method+2,host+1,sld+1:seqovl=3

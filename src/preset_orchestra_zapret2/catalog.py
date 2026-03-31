@@ -12,6 +12,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, Iterable, Optional
 
+from core.presets.strategy_catalog_sanitizer import sanitize_strategy_catalog_dir
+
 
 @dataclass(frozen=True)
 class CatalogPaths:
@@ -289,6 +291,7 @@ def load_strategies(strategy_type: str, strategy_set: Optional[str] = None) -> D
                 set_dir.mkdir(parents=True, exist_ok=True)
             except Exception:
                 pass
+            sanitize_strategy_catalog_dir(set_dir)
             for basename in basenames:
                 file_path = set_dir / f"{basename}.txt"
                 if not file_path.exists():

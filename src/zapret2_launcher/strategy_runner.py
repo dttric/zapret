@@ -574,7 +574,7 @@ class StrategyRunnerV2(StrategyRunnerBase):
         try:
             if self.running_process and self.is_running():
                 pid = self.running_process.pid
-                strategy_name = self.current_strategy_name or "unknown"
+                strategy_name = self.current_launch_label or "unknown"
 
                 log(f"Hot-reload: stopping process '{strategy_name}' (PID: {pid})", "INFO")
 
@@ -765,7 +765,7 @@ class StrategyRunnerV2(StrategyRunnerBase):
             )
 
             # Save info
-            self.current_strategy_name = strategy_name
+            self.current_launch_label = strategy_name
             self.current_strategy_args = list(launch_args)
 
             # Quick startup check
@@ -809,7 +809,7 @@ class StrategyRunnerV2(StrategyRunnerBase):
                         self._set_last_error(f"winws2 завершился сразу (код {exit_code})")
 
                 self.running_process = None
-                self.current_strategy_name = None
+                self.current_launch_label = None
                 self.current_strategy_args = None
                 self._preset_file_path = None
 
@@ -848,7 +848,7 @@ class StrategyRunnerV2(StrategyRunnerBase):
             import traceback
             log(traceback.format_exc(), "DEBUG")
             self.running_process = None
-            self.current_strategy_name = None
+            self.current_launch_label = None
             self.current_strategy_args = None
             self._preset_file_path = None
             return False

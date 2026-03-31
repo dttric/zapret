@@ -251,13 +251,13 @@ class Zapret1DirectControlPage(BasePage):
             open_strat_btn = PushButton()
             open_strat_btn.setText(tr_catalog("page.z1_control.button.open", language=self._ui_language, default="Открыть"))
             open_strat_btn.setIcon(FluentIcon.PLAY)
-            open_strat_btn.clicked.connect(self.navigate_to_strategies.emit)
+            open_strat_btn.clicked.connect(self._open_strategies_page)
         else:
             open_strat_btn = ActionButton(
                 tr_catalog("page.z1_control.button.open", language=self._ui_language, default="Открыть"),
                 "fa5s.play",
             )
-            open_strat_btn.clicked.connect(self.navigate_to_strategies.emit)
+            open_strat_btn.clicked.connect(self._open_strategies_page)
         self.open_strat_btn = open_strat_btn
         strat_row.addWidget(open_strat_btn, 0, Qt.AlignmentFlag.AlignVCenter)
         self.add_widget(strat_card)
@@ -346,6 +346,18 @@ class Zapret1DirectControlPage(BasePage):
                 )
         except Exception:
             pass
+
+    def _prewarm_direct_payload(self) -> None:
+        try:
+            from core.presets.direct_facade import DirectPresetFacade
+
+            DirectPresetFacade.from_launch_method("direct_zapret1").get_basic_ui_payload()
+        except Exception:
+            pass
+
+    def _open_strategies_page(self) -> None:
+        self._prewarm_direct_payload()
+        self.navigate_to_strategies.emit()
 
     def set_loading(self, loading: bool, text: str = ""):
         if _HAS_FLUENT:

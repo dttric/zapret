@@ -649,12 +649,6 @@ class BlockcheckPage(BasePage):
             self.connection_page = self._diagnostics_tab_page
 
             try:
-                if self.parent_app is not None:
-                    setattr(self.parent_app, "connection_page", self._diagnostics_tab_page)
-            except Exception:
-                pass
-
-            try:
                 self._diagnostics_tab_page.set_ui_language(self._ui_language)
             except Exception:
                 pass
@@ -672,12 +666,6 @@ class BlockcheckPage(BasePage):
             self._dns_spoofing_tab_page.setVisible(False)
             self.add_widget(self._dns_spoofing_tab_page)
             self.dns_check_page = self._dns_spoofing_tab_page
-
-            try:
-                if self.parent_app is not None:
-                    setattr(self.parent_app, "dns_check_page", self._dns_spoofing_tab_page)
-            except Exception:
-                pass
 
             try:
                 self._dns_spoofing_tab_page.set_ui_language(self._ui_language)

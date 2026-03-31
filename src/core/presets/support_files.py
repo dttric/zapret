@@ -4,6 +4,7 @@ from pathlib import Path
 import shutil
 
 from log import log
+from .strategy_catalog_sanitizer import sanitize_strategy_catalog_dir
 from .z2_template_runtime import ensure_templates_copied_to_presets, invalidate_templates_cache
 from .v1_template_runtime import ensure_v1_templates_copied_to_presets, update_changed_v1_templates_in_presets
 
@@ -44,6 +45,8 @@ def _prepare_direct_zapret2_support_files() -> None:
 
     _seed_missing_strategy_files(Path(MAIN_DIRECTORY) / "preset_zapret2" / "basic_strategies", basic_dir)
     _seed_missing_strategy_files(Path(MAIN_DIRECTORY) / "preset_zapret2" / "advanced_strategies", advanced_dir)
+    sanitize_strategy_catalog_dir(basic_dir)
+    sanitize_strategy_catalog_dir(advanced_dir)
 
 
 def _prepare_direct_zapret1_support_files() -> None:

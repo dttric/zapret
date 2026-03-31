@@ -39,12 +39,9 @@ from ui.text_catalog import (
     normalize_language,
     tr as tr_catalog,
 )
-from ui.main_window_compat import setup_main_window_compatibility_attrs
 from ui.main_window_navigation import (
     open_zapret1_preset_detail,
-    open_zapret1_preset_folders,
     open_zapret2_preset_detail,
-    open_zapret2_preset_folders,
     navigate_to_control,
     navigate_to_strategies,
     redirect_to_strategies_page_for_method,
@@ -88,6 +85,7 @@ from ui.main_window_pages import (
     ensure_page_in_stacked_widget,
     get_eager_page_names,
     get_loaded_page,
+    get_loaded_strategy_page_for_method,
     get_page_route_key,
     resolve_page_name,
 )
@@ -141,11 +139,6 @@ _PAGE_CLASS_SPECS: dict[PageName, tuple[str, str, str]] = {
         "ui.pages.zapret2.preset_detail_page",
         "Zapret2PresetDetailPage",
     ),
-    PageName.ZAPRET2_PRESET_FOLDERS: (
-        "zapret2_preset_folders_page",
-        "ui.pages.zapret2.preset_folders_page",
-        "Zapret2PresetFoldersPage",
-    ),
     PageName.ZAPRET2_ORCHESTRA: (
         "zapret2_orchestra_strategies_page",
         "ui.pages.zapret2_orchestra_strategies_page",
@@ -191,11 +184,6 @@ _PAGE_CLASS_SPECS: dict[PageName, tuple[str, str, str]] = {
         "ui.pages.zapret1.preset_detail_page",
         "Zapret1PresetDetailPage",
     ),
-    PageName.ZAPRET1_PRESET_FOLDERS: (
-        "zapret1_preset_folders_page",
-        "ui.pages.zapret1.preset_folders_page",
-        "Zapret1PresetFoldersPage",
-    ),
     PageName.HOSTLIST: ("hostlist_page", "ui.pages.hostlist_page", "HostlistPage"),
     PageName.BLOBS: ("blobs_page", "ui.pages.blobs_page", "BlobsPage"),
     PageName.DPI_SETTINGS: ("dpi_settings_page", "ui.pages.dpi_settings_page", "DpiSettingsPage"),
@@ -231,11 +219,6 @@ _PAGE_CLASS_SPECS: dict[PageName, tuple[str, str, str]] = {
 }
 
 _PAGE_ALIASES: dict[PageName, PageName] = {
-    PageName.IPSET: PageName.HOSTLIST,
-    # Legacy routes kept for backward compatibility
-    PageName.DIAGNOSTICS_TAB: PageName.BLOCKCHECK,
-    PageName.CONNECTION_TEST: PageName.BLOCKCHECK,
-    PageName.DNS_CHECK: PageName.BLOCKCHECK,
 }
 
 _EAGER_PAGE_NAMES_BASE: tuple[PageName, ...] = ()
@@ -443,9 +426,6 @@ class MainWindowUI:
 
         # Wire up signals
         connect_main_window_page_signals(self)
-
-        # Backward-compat attrs
-        setup_main_window_compatibility_attrs(self)
         self._log_startup_page_init_summary()
 
         # Session memory
@@ -662,13 +642,6 @@ class MainWindowUI:
     def _open_zapret1_preset_detail(self, preset_name: str) -> None:
         open_zapret1_preset_detail(self, preset_name)
 
-    def _open_zapret2_preset_folders(self) -> None:
-        open_zapret2_preset_folders(self)
-
-    def _open_zapret1_preset_folders(self) -> None:
-        open_zapret1_preset_folders(self)
-
-
     # ------------------------------------------------------------------
     # All handler methods — PRESERVED from original
     # ------------------------------------------------------------------
@@ -858,6 +831,25 @@ class MainWindowUI:
         if hasattr(self, "open_folder"):
             self.open_folder()
 
+    def _call_loaded_strategy_page_method(self, method_name: str) -> bool:
+        page = get_loaded_strategy_page_for_method(self)
+        if page is None:
+            return False
+        handler = getattr(page, method_name, None)
+        if not callable(handler):
+            return False
+        try:
+            handler()
+            return True
+        except Exception:
+            return False
+
+    def _show_active_strategy_page_loading(self) -> bool:
+        return self._call_loaded_strategy_page_method("show_loading")
+
+    def _show_active_strategy_page_success(self) -> bool:
+        return self._call_loaded_strategy_page_method("show_success")
+
     def _proxy_start_click(self):
         home_page = self.get_loaded_page(PageName.HOME)
         if home_page is not None and hasattr(home_page, "start_btn"):
@@ -939,11 +931,6 @@ class MainWindowUI:
         if launch_method == "direct_zapret2" and sender is z2_page:
             display_name = self._get_direct_strategy_summary()
             self.update_current_strategy_display(display_name)
-            if hasattr(self, "parent_app"):
-                try:
-                    self.parent_app.current_strategy_name = display_name
-                except Exception:
-                    pass
             return
 
         log(f"Стратегия выбрана из страницы: {strategy_id} - {strategy_name}", "INFO")

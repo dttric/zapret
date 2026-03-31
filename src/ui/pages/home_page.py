@@ -1,6 +1,8 @@
 # ui/pages/home_page.py
 """Главная страница - обзор состояния системы"""
 
+import time as _time
+
 from PyQt6.QtCore import (
     Qt,
     QSize,
@@ -66,6 +68,14 @@ def _accent_hex() -> str:
         except Exception:
             pass
     return "#60cdff"
+
+
+def _log_startup_home_metric(section: str, elapsed_ms: float) -> None:
+    try:
+        rounded = int(round(float(elapsed_ms)))
+    except Exception:
+        rounded = 0
+    log(f"⏱ Startup UI Section: HOME {section} {rounded}ms", "⏱ STARTUP")
 
 
 class StatusCard(CardWidget if HAS_FLUENT else QFrame):
@@ -275,6 +285,8 @@ class HomePage(BasePage):
     }
 
     def __init__(self, parent=None):
+        _t_init = _time.perf_counter()
+        _t_base = _time.perf_counter()
         super().__init__(
             "Главная",
             "Обзор состояния Zapret",
@@ -282,6 +294,7 @@ class HomePage(BasePage):
             title_key="page.home.title",
             subtitle_key="page.home.subtitle",
         )
+        _log_startup_home_metric("__init__.base_page", (_time.perf_counter() - _t_base) * 1000)
 
         self._autostart_worker = None
         self._ui_state_store = None
@@ -290,17 +303,27 @@ class HomePage(BasePage):
         self._home_intro_running = False
         self._home_intro_pending = 0
         self._home_intro_animations = []
+        self._startup_showevent_profile_logged = False
+        _t_build = _time.perf_counter()
         self._build_ui()
+        _log_startup_home_metric("__init__.build_ui", (_time.perf_counter() - _t_build) * 1000)
+        _t_connect = _time.perf_counter()
         self._connect_card_signals()
+        _log_startup_home_metric("__init__.connect_card_signals", (_time.perf_counter() - _t_connect) * 1000)
+        _log_startup_home_metric("__init__.total", (_time.perf_counter() - _t_init) * 1000)
 
     def showEvent(self, event):  # type: ignore[override]
         """При показе страницы обновляем статус автозапуска"""
+        _t_show = _time.perf_counter()
         super().showEvent(event)
         # Не нагружаем самый первый кадр второстепенными действиями.
         QTimer.singleShot(280, self._check_autostart_status)
         QTimer.singleShot(360, self._refresh_strategy_card)
         if not self._home_intro_checked:
             QTimer.singleShot(700, self._maybe_play_home_intro)
+        if not self._startup_showevent_profile_logged:
+            self._startup_showevent_profile_logged = True
+            _log_startup_home_metric("showEvent.schedule_deferred", (_time.perf_counter() - _t_show) * 1000)
 
     def _get_launch_method_display_name(self) -> str:
         """Возвращает человекочитаемое название текущего метода запуска."""
@@ -391,7 +414,10 @@ class HomePage(BasePage):
         self.update_launch_method_card()
         
     def _build_ui(self):
+        _t_total = _time.perf_counter()
+
         # Сетка карточек статуса
+        _t_cards = _time.perf_counter()
         cards_layout = QGridLayout()
         cards_layout.setSpacing(12)
         cards_layout.setContentsMargins(0, 0, 0, 0)
@@ -431,10 +457,12 @@ class HomePage(BasePage):
         self.cards_widget = QWidget(self.content)  # ✅ Явный родитель
         self.cards_widget.setLayout(cards_layout)
         self.add_widget(self.cards_widget)
+        _log_startup_home_metric("_build_ui.status_cards", (_time.perf_counter() - _t_cards) * 1000)
         
         self.add_spacing(8)
         
         # Быстрые действия
+        _t_actions = _time.perf_counter()
         self.add_section_title(text_key="page.home.section.quick_actions")
         
         self.actions_card = SettingsCard()
@@ -468,10 +496,12 @@ class HomePage(BasePage):
         actions_layout.addStretch()
         self.actions_card.add_layout(actions_layout)
         self.add_widget(self.actions_card)
+        _log_startup_home_metric("_build_ui.quick_actions", (_time.perf_counter() - _t_actions) * 1000)
         
         self.add_spacing(8)
         
         # Статусная строка
+        _t_status = _time.perf_counter()
         self.add_section_title(text_key="page.home.section.status")
         
         self.status_card = SettingsCard()
@@ -484,11 +514,15 @@ class HomePage(BasePage):
         self.progress_bar = IndeterminateProgressBar(self)
         self.progress_bar.setVisible(False)
         self.add_widget(self.progress_bar)
+        _log_startup_home_metric("_build_ui.status_block", (_time.perf_counter() - _t_status) * 1000)
 
         self.add_spacing(12)
 
         # Блок Premium
+        _t_premium = _time.perf_counter()
         self._build_premium_block()
+        _log_startup_home_metric("_build_ui.premium_block", (_time.perf_counter() - _t_premium) * 1000)
+        _log_startup_home_metric("_build_ui.total", (_time.perf_counter() - _t_total) * 1000)
 
     def _maybe_play_home_intro(self) -> None:
         if self._home_intro_checked or self._home_intro_running:
@@ -498,6 +532,7 @@ class HomePage(BasePage):
         self._play_home_intro()
 
     def _play_home_intro(self) -> None:
+        _t_intro = _time.perf_counter()
         widgets = [
             getattr(self, "cards_widget", None),
             getattr(self, "actions_card", None),
@@ -528,6 +563,7 @@ class HomePage(BasePage):
 
         if self._home_intro_pending <= 0:
             self._finish_home_intro()
+        _log_startup_home_metric("intro.setup", (_time.perf_counter() - _t_intro) * 1000)
 
     def _animate_home_intro_widget(self, widget: QWidget) -> None:
         effect = widget.graphicsEffect()

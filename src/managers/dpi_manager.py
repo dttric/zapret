@@ -82,7 +82,8 @@ class DPIManager(QObject):
         }
 
         log(f"Автозапуск direct_zapret2_orchestra из preset файла: {preset_path}", "INFO")
-        self.app.current_strategy_name = f"Пресет оркестра: {preset_name}"
+        if hasattr(self.app, "update_current_strategy_display"):
+            self.app.update_current_strategy_display(f"Пресет оркестра: {preset_name}")
         self.app.dpi_controller.start_dpi_async(selected_mode=strategy_data, launch_method=launch_method)
         self._update_ui(running=True)
 
@@ -100,7 +101,8 @@ class DPIManager(QObject):
             return
 
         log(f"Автозапуск Zapret1 из выбранного source-пресета: {profile.launch_config_path}", "INFO")
-        self.app.current_strategy_name = profile.display_name
+        if hasattr(self.app, "update_current_strategy_display"):
+            self.app.update_current_strategy_display(profile.display_name)
         self.app.dpi_controller.start_dpi_async(selected_mode=strategy_data, launch_method="direct_zapret1")
         self._update_ui(running=True)
 
@@ -134,7 +136,8 @@ class DPIManager(QObject):
                 return
 
             # Обновляем UI
-            self.app.current_strategy_name = "Оркестр"
+            if hasattr(self.app, "update_current_strategy_display"):
+                self.app.update_current_strategy_display("Оркестр")
             self._update_ui(running=True)
 
             # Запускаем мониторинг на странице оркестра

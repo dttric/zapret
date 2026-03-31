@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 import re
+import time as _time
 from typing import Callable, Optional
 
 from core.direct_preset_core.common.source_preset_models import OutRangeSettings, SendSettings, SyndataSettings
@@ -14,6 +15,22 @@ from core.presets.template_support import restore_deleted_templates as _template
 from core.services import get_app_paths, get_direct_flow_coordinator, get_preset_repository, get_selection_service
 
 from .models import PresetManifest
+from log import log
+
+
+_BASIC_UI_PAYLOAD_CACHE: dict[tuple[str, str, str, int, int], BasicUiPayload] = {}
+
+
+def _log_startup_payload_metric(scope: str | None, section: str, elapsed_ms: float, *, extra: str | None = None) -> None:
+    resolved_scope = str(scope or "").strip()
+    if not resolved_scope:
+        return
+    try:
+        rounded = int(round(float(elapsed_ms)))
+    except Exception:
+        rounded = 0
+    suffix = f" ({extra})" if extra else ""
+    log(f"⏱ Startup UI Section: {resolved_scope} {section} {rounded}ms{suffix}", "⏱ STARTUP")
 
 
 def _rewrite_preset_header_name(source_text: str, target_name: str) -> str:
@@ -336,6 +353,35 @@ class DirectPresetFacadeBackend:
     def _service(self) -> DirectPresetService:
         return DirectPresetService(get_app_paths(), self.engine)
 
+    def _invalidate_basic_ui_payload_cache(self) -> None:
+        global _BASIC_UI_PAYLOAD_CACHE
+        prefix = (self.engine, self.launch_method)
+        _BASIC_UI_PAYLOAD_CACHE = {
+            key: value
+            for key, value in _BASIC_UI_PAYLOAD_CACHE.items()
+            if key[:2] != prefix
+        }
+
+    def _basic_ui_payload_cache_key(self) -> tuple[str, str, str, int, int] | None:
+        selected_manifest = self.get_selected_manifest()
+        if selected_manifest is None:
+            return None
+        selected_file_name = str(selected_manifest.file_name or "").strip()
+        if not selected_file_name:
+            return None
+        try:
+            path = self.get_source_path_by_file_name(selected_file_name)
+            stat = path.stat()
+        except Exception:
+            return None
+        return (
+            self.engine,
+            self.launch_method,
+            selected_file_name,
+            int(getattr(stat, "st_mtime_ns", 0) or 0),
+            int(getattr(stat, "st_size", 0) or 0),
+        )
+
     def _load_selected_preset_model(self):
         selected_manifest = self.get_selected_manifest()
         if selected_manifest is None:
@@ -348,16 +394,64 @@ class DirectPresetFacadeBackend:
     def list_manifests(self) -> list[PresetManifest]:
         return get_preset_repository().list_manifests(self.engine)
 
-    def get_basic_ui_payload(self) -> BasicUiPayload:
+    def get_basic_ui_payload(self, *, startup_scope: str | None = None) -> BasicUiPayload:
+        _t_total = _time.perf_counter()
+        _t_load = _time.perf_counter()
+        cache_key = self._basic_ui_payload_cache_key()
+        if cache_key is not None:
+            cached_payload = _BASIC_UI_PAYLOAD_CACHE.get(cache_key)
+            if cached_payload is not None:
+                _log_startup_payload_metric(
+                    startup_scope,
+                    "_build_content.payload.backend.load_selected_preset",
+                    (_time.perf_counter() - _t_load) * 1000,
+                    extra=f"has_preset=yes, cache=hit",
+                )
+                _log_startup_payload_metric(
+                    startup_scope,
+                    "_build_content.payload.backend.total",
+                    (_time.perf_counter() - _t_total) * 1000,
+                    extra=f"targets={len(cached_payload.target_items or {})}, cache=hit",
+                )
+                return cached_payload
         preset = self.get_selected_source_preset_model()
+        _log_startup_payload_metric(
+            startup_scope,
+            "_build_content.payload.backend.load_selected_preset",
+            (_time.perf_counter() - _t_load) * 1000,
+            extra=f"has_preset={'yes' if preset else 'no'}, cache=miss",
+        )
         if not preset:
+            _log_startup_payload_metric(
+                startup_scope,
+                "_build_content.payload.backend.total",
+                (_time.perf_counter() - _t_total) * 1000,
+                extra="has_preset=no",
+            )
             return BasicUiPayload(
                 target_views=(),
                 target_items={},
                 strategy_selections={},
+                strategy_names_by_target={},
                 filter_modes={},
             )
-        return self._service().build_basic_ui_payload(preset)
+        _t_service = _time.perf_counter()
+        payload = self._service().build_basic_ui_payload(preset, startup_scope=startup_scope)
+        if cache_key is not None:
+            _BASIC_UI_PAYLOAD_CACHE[cache_key] = payload
+        _log_startup_payload_metric(
+            startup_scope,
+            "_build_content.payload.backend.service",
+            (_time.perf_counter() - _t_service) * 1000,
+            extra=f"targets={len(payload.target_items or {})}",
+        )
+        _log_startup_payload_metric(
+            startup_scope,
+            "_build_content.payload.backend.total",
+            (_time.perf_counter() - _t_total) * 1000,
+            extra=f"targets={len(payload.target_items or {})}",
+        )
+        return payload
 
     def get_target_detail_payload(self, target_key: str) -> TargetDetailPayload | None:
         preset = self.get_selected_source_preset_model()
@@ -477,6 +571,59 @@ class DirectPresetFacadeBackend:
 
     def get_debug_log_enabled(self) -> bool:
         return bool(self.get_debug_log_file())
+
+    def get_advanced_settings_state(self) -> dict[str, bool]:
+        discord_restart = True
+        try:
+            from discord.discord_restart import get_discord_restart_setting
+
+            discord_restart = bool(get_discord_restart_setting(default=True))
+        except Exception:
+            pass
+
+        manifest = self.get_selected_manifest()
+        if manifest is None:
+            return {
+                "discord_restart": discord_restart,
+                "wssize_enabled": False,
+                "debug_log_enabled": False,
+            }
+
+        debug_log_enabled = False
+        try:
+            debug_log_enabled = bool(_extract_debug_log_file(self.read_source_text_by_file_name(manifest.file_name)))
+        except Exception:
+            debug_log_enabled = False
+
+        wssize_enabled = False
+        try:
+            preset = self.get_selected_source_preset_model()
+            if preset:
+                contexts = self._service().collect_target_contexts(preset)
+                for target_key, ctx in contexts.items():
+                    if ctx.protocol_kind != "tcp":
+                        continue
+                    profile = preset.profiles[ctx.profile_index]
+                    if not any(
+                        line.strip().startswith("--filter-tcp=") and _ports_include_443(line.split("=", 1)[1].strip())
+                        for line in profile.match_lines
+                    ):
+                        continue
+                    args_text = self._service()._get_raw_args(preset, target_key)
+                    if self.launch_method == "direct_zapret2" and _v2_wssize_enabled_from_args(args_text):
+                        wssize_enabled = True
+                        break
+                    if self.launch_method == "direct_zapret1" and _v1_wssize_enabled_from_args(args_text):
+                        wssize_enabled = True
+                        break
+        except Exception:
+            wssize_enabled = False
+
+        return {
+            "discord_restart": discord_restart,
+            "wssize_enabled": bool(wssize_enabled),
+            "debug_log_enabled": bool(debug_log_enabled),
+        }
 
     def set_debug_log_enabled(self, enabled: bool) -> bool:
         manifest = self.get_selected_manifest()
@@ -808,6 +955,7 @@ class DirectPresetFacadeBackend:
             return False
         source_text = self._service()._serializer().serialize(preset)
         get_preset_repository().update_preset(self.engine, selected_manifest.file_name, source_text, selected_manifest.name)
+        self._invalidate_basic_ui_payload_cache()
         self._refresh_selected_launch_profile_from_source()
         if self.on_dpi_reload_needed:
             self.on_dpi_reload_needed()

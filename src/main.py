@@ -390,18 +390,29 @@ class LupiDPIApp(ZapretFluentWindow, MainWindowUI, ThemeSubscriptionManager):
         
         # ✅ Очищаем страницы с потоками
         try:
-            if hasattr(self, 'logs_page') and hasattr(self.logs_page, 'cleanup'):
-                self.logs_page.cleanup()
-            if hasattr(self, 'servers_page') and hasattr(self.servers_page, 'cleanup'):
-                self.servers_page.cleanup()
-            if hasattr(self, 'blockcheck_page') and hasattr(self.blockcheck_page, 'cleanup'):
-                self.blockcheck_page.cleanup()
-            if hasattr(self, 'connection_page') and hasattr(self.connection_page, 'cleanup'):
-                self.connection_page.cleanup()
-            if hasattr(self, 'dns_check_page') and hasattr(self.dns_check_page, 'cleanup'):
-                self.dns_check_page.cleanup()
-            if hasattr(self, 'hosts_page') and hasattr(self.hosts_page, 'cleanup'):
-                self.hosts_page.cleanup()
+            logs_page = self.get_loaded_page(PageName.LOGS)
+            if logs_page is not None and hasattr(logs_page, 'cleanup'):
+                logs_page.cleanup()
+
+            servers_page = self.get_loaded_page(PageName.SERVERS)
+            if servers_page is not None and hasattr(servers_page, 'cleanup'):
+                servers_page.cleanup()
+
+            blockcheck_page = self.get_loaded_page(PageName.BLOCKCHECK)
+            if blockcheck_page is not None and hasattr(blockcheck_page, 'cleanup'):
+                blockcheck_page.cleanup()
+
+            connection_page = getattr(blockcheck_page, "connection_page", None)
+            if connection_page is not None and hasattr(connection_page, 'cleanup'):
+                connection_page.cleanup()
+
+            dns_check_page = getattr(blockcheck_page, "dns_check_page", None)
+            if dns_check_page is not None and hasattr(dns_check_page, 'cleanup'):
+                dns_check_page.cleanup()
+
+            hosts_page = self.get_loaded_page(PageName.HOSTS)
+            if hosts_page is not None and hasattr(hosts_page, 'cleanup'):
+                hosts_page.cleanup()
         except Exception as e:
             log(f"Ошибка при очистке страниц: {e}", "DEBUG")
 
@@ -839,10 +850,6 @@ class LupiDPIApp(ZapretFluentWindow, MainWindowUI, ThemeSubscriptionManager):
         try:
             log(f"Выбрана стратегия: {strategy_name} (ID: {strategy_id})", level="INFO")
             
-            # Сохраняем ID и имя выбранной стратегии в атрибутах класса
-            self.current_strategy_id = strategy_id
-            self.current_strategy_name = strategy_name
-            
             # ДЛЯ DIRECT РЕЖИМА ИСПОЛЬЗУЕМ ПРОСТОЕ НАЗВАНИЕ
             from strategy_menu import get_strategy_launch_method
             launch_method = get_strategy_launch_method()
@@ -857,7 +864,6 @@ class LupiDPIApp(ZapretFluentWindow, MainWindowUI, ThemeSubscriptionManager):
                     display_name = f"Пресет: {preset_name}"
                 except Exception:
                     display_name = "Пресет"
-                self.current_strategy_name = display_name
                 strategy_name = display_name
                 log(f"Установлено имя пресета для direct_zapret2: {display_name}", "DEBUG")
             elif strategy_id == "DIRECT_MODE" or launch_method in ("direct_zapret2_orchestra", "direct_zapret1"):
@@ -879,7 +885,6 @@ class LupiDPIApp(ZapretFluentWindow, MainWindowUI, ThemeSubscriptionManager):
                         display_name = "Пресет"
                 else:
                     display_name = "Пресет"
-                self.current_strategy_name = display_name
                 strategy_name = display_name
                 log(f"Установлено простое название для режима {launch_method}: {display_name}", "DEBUG")
 
@@ -1015,11 +1020,15 @@ class LupiDPIApp(ZapretFluentWindow, MainWindowUI, ThemeSubscriptionManager):
         self._closing_completely = False
         self._deferred_init_started = False
         self._startup_splash = None
+        self._startup_splash_show_timer = None
         self._startup_splash_shown_at = None
         self._startup_splash_finish_pending = False
-        self._startup_splash_min_visible_ms = 2200
+        # Show splash only if startup is still not ready after a short grace period.
+        self._startup_splash_show_delay_ms = 250
+        self._startup_splash_min_visible_ms = 500
         self._startup_post_init_ready = False
         self._startup_subscription_ready = False
+        self._startup_background_init_started = False
 
         # Window geometry persistence (debounce)
         self._geometry_restore_in_progress = False
@@ -1058,8 +1067,6 @@ class LupiDPIApp(ZapretFluentWindow, MainWindowUI, ThemeSubscriptionManager):
         self.setMinimumSize(MIN_WIDTH, 400)
         self.restore_window_geometry()
 
-        self.current_strategy_id = None
-        self.current_strategy_name = None
         self._holiday_effects = HolidayEffectsManager(self)
         self._startup_ttff_logged = False
         self._startup_ttff_ms = None
@@ -1072,16 +1079,38 @@ class LupiDPIApp(ZapretFluentWindow, MainWindowUI, ThemeSubscriptionManager):
 
         # Show window right away (FluentWindow handles rendering)
         if not self.start_in_tray and not self.isVisible():
-            self._show_startup_splash()
+            self._schedule_startup_splash()
             self.show()
             log("Основное окно показано (FluentWindow, init в фоне)", "DEBUG")
 
         deferred_init_delay_ms = 0 if self.start_in_tray else 60
         QTimer.singleShot(deferred_init_delay_ms, self._deferred_init)
 
+    def _schedule_startup_splash(self) -> None:
+        if self.start_in_tray:
+            return
+        if getattr(self, "_startup_splash", None) is not None:
+            return
+        if bool(getattr(self, "_startup_post_init_ready", False)):
+            return
+        timer = getattr(self, "_startup_splash_show_timer", None)
+        if timer is None:
+            timer = QTimer(self)
+            timer.setSingleShot(True)
+            timer.timeout.connect(self._show_startup_splash)
+            self._startup_splash_show_timer = timer
+        if timer.isActive():
+            return
+        timer.start(int(self._startup_splash_show_delay_ms))
+
     def _show_startup_splash(self) -> None:
         if self.start_in_tray or getattr(self, "_startup_splash", None) is not None:
             return
+        if bool(getattr(self, "_startup_post_init_ready", False)):
+            return
+        timer = getattr(self, "_startup_splash_show_timer", None)
+        if timer is not None and timer.isActive():
+            timer.stop()
         try:
             from PyQt6.QtCore import QSize
             from qfluentwidgets import SplashScreen
@@ -1201,15 +1230,17 @@ class LupiDPIApp(ZapretFluentWindow, MainWindowUI, ThemeSubscriptionManager):
         QTimer.singleShot(delay_ms, self._finish_startup_splash)
 
     def _try_finish_startup_splash(self, reason: str = "") -> None:
-        if getattr(self, "_startup_splash", None) is None:
-            return
-
         if not self._startup_post_init_ready:
             return
-        if not self._startup_subscription_ready:
+
+        if getattr(self, "_startup_splash", None) is None:
+            timer = getattr(self, "_startup_splash_show_timer", None)
+            if timer is not None and timer.isActive():
+                timer.stop()
+            self._start_background_init_after_splash()
             return
 
-        self._request_finish_startup_splash(reason=reason or "all-startup-phases-ready")
+        self._request_finish_startup_splash(reason=reason or "post-init-ready")
 
     def _mark_startup_subscription_ready(self, source: str = "subscription_ready") -> None:
         self._startup_subscription_ready = True
@@ -1237,6 +1268,20 @@ class LupiDPIApp(ZapretFluentWindow, MainWindowUI, ThemeSubscriptionManager):
                 splash.close()
             except Exception:
                 pass
+
+        self._start_background_init_after_splash()
+
+    def _start_background_init_after_splash(self) -> None:
+        if self._startup_background_init_started:
+            return
+        self._startup_background_init_started = True
+
+        try:
+            subscription_manager = getattr(self, "subscription_manager", None)
+            if subscription_manager is not None:
+                QTimer.singleShot(0, subscription_manager.initialize_async)
+        except Exception:
+            pass
 
     def _deferred_init(self) -> None:
         """Heavy initialization — runs after first frame is shown."""
@@ -1288,7 +1333,6 @@ class LupiDPIApp(ZapretFluentWindow, MainWindowUI, ThemeSubscriptionManager):
 
         # Запускаем асинхронную инициализацию через менеджер
         QTimer.singleShot(50, self.initialization_manager.run_async_init)
-        QTimer.singleShot(1000, self.subscription_manager.initialize_async)
         # Гирлянда инициализируется автоматически в subscription_manager после проверки подписки
         log(f"⏱ Startup: deferred init total {( _time.perf_counter() - _t_total ) * 1000:.0f}ms", "DEBUG")
 
@@ -1827,21 +1871,20 @@ class LupiDPIApp(ZapretFluentWindow, MainWindowUI, ThemeSubscriptionManager):
         """Переключает на вкладку диагностики соединений."""
         try:
             if self.show_page(PageName.BLOCKCHECK):
+                blockcheck_page = None
                 try:
-                    blockcheck_page = getattr(self, "blockcheck_page", None)
+                    blockcheck_page = self.get_loaded_page(PageName.BLOCKCHECK)
                     if blockcheck_page is not None:
                         switch_tab = getattr(blockcheck_page, "switch_to_tab", None)
                         if callable(switch_tab):
                             switch_tab("diagnostics")
-
-                        self.connection_page = getattr(blockcheck_page, "connection_page", getattr(self, "connection_page", None))
-                        self.dns_check_page = getattr(blockcheck_page, "dns_check_page", getattr(self, "dns_check_page", None))
                 except Exception:
                     pass
 
                 try:
-                    if getattr(self, "connection_page", None) is not None:
-                        self.connection_page.start_btn.setFocus()
+                    connection_page = getattr(blockcheck_page, "connection_page", None)
+                    if connection_page is not None:
+                        connection_page.start_btn.setFocus()
                 except Exception:
                     pass
                 log("Открыта вкладка диагностики в BlockCheck", "INFO")
@@ -2194,6 +2237,7 @@ def main():
             fatal_error = payload.get("fatal_error")
             warnings = payload.get("warnings") or []
             ok = bool(payload.get("ok", True))
+            proxy_prompt = payload.get("proxy_prompt") or None
             kaspersky_detected = bool(payload.get("kaspersky_detected", False))
 
             if fatal_error:
@@ -2226,6 +2270,46 @@ def main():
                     show_kaspersky_warning(window)
                 except Exception as e:
                     log(f"Не удалось показать предупреждение Kaspersky: {e}", "⚠️ KASPERSKY")
+
+            if proxy_prompt and not start_in_tray:
+                try:
+                    from qfluentwidgets import MessageBox as _MsgBox
+                    from startup.check_start import _disable_proxy
+
+                    title = str(proxy_prompt.get("title") or "Включен системный прокси")
+                    message = str(proxy_prompt.get("message") or "").strip()
+                    box = _MsgBox(title, message, window)
+                    box.yesButton.setText("Отключить прокси")
+                    box.cancelButton.setText("Оставить как есть")
+                    try:
+                        box.cancelButton.setFocus()
+                    except Exception:
+                        pass
+
+                    if box.exec():
+                        success, disable_error = _disable_proxy()
+                        try:
+                            from qfluentwidgets import InfoBar as _InfoBar, InfoBarPosition as _IBPos
+                            if success:
+                                _InfoBar.success(
+                                    title="Прокси отключен",
+                                    content="Ручной системный прокси был отключен по вашему запросу.",
+                                    parent=window,
+                                    duration=5000,
+                                    position=_IBPos.TOP_RIGHT,
+                                )
+                            else:
+                                _InfoBar.warning(
+                                    title="Не удалось отключить прокси",
+                                    content=str(disable_error or "Настройки прокси не были изменены."),
+                                    parent=window,
+                                    duration=7000,
+                                    position=_IBPos.TOP_RIGHT,
+                                )
+                        except Exception:
+                            pass
+                except Exception as e:
+                    log(f"Не удалось показать Fluent-диалог прокси: {e}", "WARNING")
 
             if not ok and not start_in_tray:
                 log("Некритические проверки не пройдены, продолжаем работу после предупреждения", "⚠ WARNING")
@@ -2295,7 +2379,7 @@ def main():
             if not ensure_bfe_running(show_ui=True):
                 log("BFE не запущен, продолжаем работу после предупреждения", "⚠ WARNING")
 
-            can_continue, warnings, fatal_error = collect_startup_warnings()
+            can_continue, warnings, fatal_error, proxy_prompt = collect_startup_warnings()
             warnings = list(warnings or [])
 
             # Нефатальные, но потенциально долгие проверки — только в фоне после показа окна.
@@ -2328,6 +2412,7 @@ def main():
                     "ok": bool(can_continue),
                     "warnings": warnings,
                     "fatal_error": fatal_error,
+                    "proxy_prompt": proxy_prompt,
                     "kaspersky_detected": kaspersky_detected,
                 }
             )
@@ -2338,7 +2423,7 @@ def main():
                     window.set_status(f"Ошибка проверок: {e}")
                 except Exception:
                     pass
-            _startup_bridge.finished.emit({"ok": True, "warnings": [], "fatal_error": None})
+            _startup_bridge.finished.emit({"ok": True, "warnings": [], "fatal_error": None, "proxy_prompt": None})
 
     # Запускаем проверки только после interactive-фазы,
     # чтобы не конкурировать с heavy build_ui на старте.

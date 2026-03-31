@@ -84,12 +84,14 @@
 --ipset-exclude=lists/ipset-exclude.txt
 --ipset-exclude=lists/ipset-ru.txt
 --ipset-exclude=lists/ipset-dns.txt
+--out-range=-n8
 --lua-desync=fake:blob=quic_google:repeats=6
 
 --new
 
---filter-l7=discord,stun
+--filter-l7=stun,discord
 --payload=stun,discord_ip_discovery
+--out-range=-n8
 --lua-desync=fake:blob=fake_default_udp:repeats=6
 
 --new
