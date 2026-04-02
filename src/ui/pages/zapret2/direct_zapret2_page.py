@@ -109,6 +109,7 @@ class Zapret2StrategiesPageNew(BasePage):
         self._ui_state_unsubscribe = None
         self._basic_payload_cache = None
         self._preset_refresh_pending = False
+        self._list_structure_signature = None
         self._empty_state_label = None
         self._request_hint_label = None
         self._request_btn = None
@@ -178,7 +179,7 @@ class Zapret2StrategiesPageNew(BasePage):
 
         if self._built and current_set != getattr(self, "_strategy_set_snapshot", None):
             try:
-                self._reload_strategies()
+                self.refresh_from_preset_switch()
                 return
             except Exception:
                 pass
@@ -233,12 +234,16 @@ class Zapret2StrategiesPageNew(BasePage):
             self._render_probe_idle_logged = False
 
             _t_payload = _time.perf_counter()
-            payload = self._get_basic_payload(refresh=True, startup_scope="ZAPRET2_DIRECT")
+            payload = self._get_basic_payload(
+                refresh=self._basic_payload_cache is None,
+                startup_scope="ZAPRET2_DIRECT",
+            )
             target_views = list(payload.target_views or ())
             target_items = payload.target_items or {}
             self.target_selections = payload.strategy_selections or {}
             strategy_names_by_target = payload.strategy_names_by_target or {}
             filter_modes = payload.filter_modes or {}
+            self._list_structure_signature = self._build_list_structure_signature(payload)
             _log_startup_z2_direct_metric("_build_content.payload", (_time.perf_counter() - _t_payload) * 1000)
 
             # Карточка с переходом на форму запроса новой категории
@@ -356,11 +361,7 @@ class Zapret2StrategiesPageNew(BasePage):
 
             # Запоминаем текущий UI-режим direct_zapret2, чтобы понимать,
             # нужно ли перестраивать страницу после возврата.
-            try:
-                from strategy_menu.ui_prefs_store import get_direct_zapret2_ui_mode
-                self._strategy_set_snapshot = get_direct_zapret2_ui_mode()
-            except Exception:
-                self._strategy_set_snapshot = None
+            self._update_strategy_set_snapshot()
 
             self._built = True
             log("Zapret2StrategiesPageNew построена", "INFO")
@@ -373,6 +374,66 @@ class Zapret2StrategiesPageNew(BasePage):
             log(f"Ошибка построения Zapret2StrategiesPageNew: {e}", "ERROR")
             import traceback
             log(traceback.format_exc(), "DEBUG")
+
+    def _build_list_structure_signature(self, payload) -> tuple:
+        """Собирает сигнатуру структуры списка для решения: rebuild нужен или нет."""
+        target_items = payload.target_items or {}
+        signature_rows = []
+        for view in tuple(payload.target_views or ()):
+            target_key = str(getattr(view, "target_key", "") or "").strip()
+            meta = target_items.get(target_key)
+            signature_rows.append(
+                (
+                    target_key,
+                    str(getattr(view, "display_name", "") or "").strip(),
+                    str(getattr(meta, "full_name", "") or "").strip(),
+                    str(getattr(meta, "command_group", "") or "").strip(),
+                    int(getattr(meta, "order", 999) or 999),
+                    int(getattr(meta, "command_order", 999) or 999),
+                    str(getattr(meta, "protocol", "") or "").strip(),
+                    str(getattr(meta, "ports", "") or "").strip(),
+                    str(getattr(meta, "icon_name", "") or "").strip(),
+                    str(getattr(meta, "icon_color", "") or "").strip(),
+                    str(getattr(meta, "base_filter_hostlist", "") or "").strip(),
+                    str(getattr(meta, "base_filter_ipset", "") or "").strip(),
+                    str(getattr(meta, "strategy_type", "") or "").strip(),
+                    bool(getattr(meta, "requires_all_ports", False)),
+                )
+            )
+        return tuple(signature_rows)
+
+    def _update_strategy_set_snapshot(self) -> None:
+        try:
+            from strategy_menu.ui_prefs_store import get_direct_zapret2_ui_mode
+
+            self._strategy_set_snapshot = get_direct_zapret2_ui_mode()
+        except Exception:
+            self._strategy_set_snapshot = None
+
+    def _apply_payload_to_existing_list(self, payload, *, reason: str) -> bool:
+        """Обновляет уже построенный список без полной перестройки страницы."""
+        if self._targets_list is None:
+            return False
+
+        target_items = payload.target_items or {}
+        self.target_selections = payload.strategy_selections or {}
+        filter_modes = payload.filter_modes or {}
+
+        self._targets_list.set_strategy_names_by_target(payload.strategy_names_by_target or {})
+        self._targets_list.set_selections(self.target_selections)
+        self._targets_list.set_filter_modes(filter_modes, target_keys=target_items.keys())
+
+        self._list_structure_signature = self._build_list_structure_signature(payload)
+        self._update_strategy_set_snapshot()
+        self._update_current_strategies_display()
+        log(f"Список стратегий обновлен без полной перестройки ({reason})", "DEBUG")
+        return True
+
+    def _payload_requires_rebuild(self, payload) -> bool:
+        """Определяет, нужно ли физически пересобирать список."""
+        if self._targets_list is None:
+            return True
+        return self._build_list_structure_signature(payload) != self._list_structure_signature
 
     def _log_render_probe_idle(self) -> None:
         if self._render_probe_idle_logged:
@@ -461,10 +522,17 @@ class Zapret2StrategiesPageNew(BasePage):
         if hasattr(self, '_reload_btn'):
             self._reload_btn.set_loading(True)
         try:
+            payload = self._get_basic_payload(refresh=True)
+            if not self._payload_requires_rebuild(payload):
+                self._apply_payload_to_existing_list(payload, reason="reload")
+                log("Стратегии обновлены без полной перестройки", "INFO")
+                return
+
             # Перестраиваем UI
             self._built = False
             self._build_scheduled = False
-            self._basic_payload_cache = None
+            self._basic_payload_cache = payload
+            self._list_structure_signature = None
 
             # Удаляем старые виджеты, сохраняя заголовки.
             # Ищем subtitle_label динамически, т.к. back_button может быть
@@ -483,6 +551,7 @@ class Zapret2StrategiesPageNew(BasePage):
                     item.widget().deleteLater()
 
             self._targets_list = None
+            self._empty_state_label = None
             self._build_content()
 
             log("Стратегии перезагружены", "INFO")
@@ -505,8 +574,7 @@ class Zapret2StrategiesPageNew(BasePage):
         try:
             payload = self._get_basic_payload(refresh=True)
             target_items = payload.target_items or {}
-            self.target_selections = payload.strategy_selections or {}
-            filter_modes = payload.filter_modes or {}
+            requires_rebuild = self._payload_requires_rebuild(payload)
 
             # Важный случай: страница могла открыться слишком рано и построиться
             # пустой, когда source preset ещё не был готов. Раньше после этого
@@ -514,20 +582,12 @@ class Zapret2StrategiesPageNew(BasePage):
             # а если списка не было вовсе, UI так и оставался пустым до ручного
             # нажатия «Обновить». Здесь мы явно пересобираем страницу, если данные
             # уже появились или на экране сейчас показан empty state.
-            if self._targets_list is None:
+            if requires_rebuild:
                 if target_items or self._empty_state_label is not None:
                     self._reload_strategies()
                 return
 
-            if self._targets_list:
-                self._targets_list.set_strategy_names_by_target(payload.strategy_names_by_target or {})
-                self._targets_list.set_selections(self.target_selections)
-
-                # Sync badges for ALL targets so stale/invalid badges disappear.
-                self._targets_list.set_filter_modes(filter_modes, target_keys=target_items.keys())
-
-            # Совместимость: обновить счетчик активных
-            self._update_current_strategies_display()
+            self._apply_payload_to_existing_list(payload, reason="preset_switch")
 
         except Exception as e:
             log(f"Ошибка refresh_from_preset_switch: {e}", "DEBUG")
@@ -696,7 +756,7 @@ class Zapret2StrategiesPageNew(BasePage):
     def reload_for_mode_change(self):
         """Совместимость: перезагружает страницу при смене режима"""
         self._basic_payload_cache = None
-        self._reload_strategies()
+        self.refresh_from_preset_switch()
 
     def _show_info_popup(self):
         """Показывает информационный диалог о режиме прямого запуска."""

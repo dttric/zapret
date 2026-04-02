@@ -24,6 +24,12 @@ from .base_page import BasePage
 from ui.compat_widgets import SettingsCard, StatusIndicator, ActionButton, set_tooltip
 from ui.main_window_state import AppUiState, MainWindowStateStore
 from ui.text_catalog import tr as tr_catalog
+from ui.window_action_controller import (
+    open_connection_test as _open_connection_test_action,
+    open_folder as _open_folder_action,
+    start_dpi as _start_dpi_action,
+    stop_dpi as _stop_dpi_action,
+)
 from log import log
 
 try:
@@ -471,19 +477,23 @@ class HomePage(BasePage):
         
         # Кнопка запуска
         self.start_btn = ActionButton(tr_catalog("page.home.action.start", language=self._ui_language, default="Запустить"), "fa5s.play", accent=True)
+        self.start_btn.clicked.connect(self._start_dpi)
         actions_layout.addWidget(self.start_btn)
         
         # Кнопка остановки
         self.stop_btn = ActionButton(tr_catalog("page.home.action.stop", language=self._ui_language, default="Остановить"), "fa5s.stop")
+        self.stop_btn.clicked.connect(self._stop_dpi)
         self.stop_btn.setVisible(False)
         actions_layout.addWidget(self.stop_btn)
         
         # Кнопка теста
         self.test_btn = ActionButton(tr_catalog("page.home.action.connection_test", language=self._ui_language, default="Тест соединения"), "fa5s.wifi")
+        self.test_btn.clicked.connect(self._open_connection_test)
         actions_layout.addWidget(self.test_btn)
         
         # Кнопка папки
         self.folder_btn = ActionButton(tr_catalog("page.home.action.open_folder", language=self._ui_language, default="Открыть папку"), "fa5s.folder-open")
+        self.folder_btn.clicked.connect(self._open_folder)
         actions_layout.addWidget(self.folder_btn)
 
         # Кнопка "Как использовать"
@@ -643,6 +653,22 @@ class HomePage(BasePage):
         self.strategy_card.clicked.connect(self.navigate_to_dpi_settings.emit)
         self.autostart_card.clicked.connect(self.navigate_to_autostart.emit)
         self.subscription_card.clicked.connect(self.navigate_to_premium.emit)
+
+    def _start_dpi(self) -> None:
+        """Локальный обработчик запуска DPI для кнопки на главной."""
+        _start_dpi_action(self)
+
+    def _stop_dpi(self) -> None:
+        """Локальный обработчик остановки DPI для кнопки на главной."""
+        _stop_dpi_action(self)
+
+    def _open_connection_test(self) -> None:
+        """Локальный обработчик открытия страницы теста соединения."""
+        _open_connection_test_action(self)
+
+    def _open_folder(self) -> None:
+        """Локальный обработчик открытия рабочей папки приложения."""
+        _open_folder_action(self)
         
     def update_dpi_status(self, is_running: bool, strategy_name: str | None = None):
         """Обновляет отображение статуса DPI"""

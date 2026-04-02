@@ -507,6 +507,7 @@ class DirectPresetService:
             profile.action_lines,
             ctx.strategy_candidates,
             strategy_set=strategy_set,
+            match_lines=profile.match_lines,
         )
         out_range = self._rules().parse_out_range(profile.action_lines)
         send = self._rules().parse_send(profile.action_lines)
@@ -548,6 +549,7 @@ class DirectPresetService:
             profile.action_lines,
             ctx.strategy_candidates,
             strategy_set=strategy_set,
+            match_lines=profile.match_lines,
             catalogs=catalogs,
             strategy_lookup_cache=strategy_lookup_cache,
         )
@@ -600,12 +602,17 @@ class DirectPresetService:
         candidates: tuple[str, ...],
         *,
         strategy_set: str | None = None,
+        match_lines: list[str] | tuple[str, ...] | None = None,
         catalogs: dict[str, dict[str, StrategyEntry]] | None = None,
         strategy_lookup_cache: dict[tuple[tuple[str, ...], str], dict[str, str]] | None = None,
     ) -> str:
         matched_any_non_empty = False
         for compare_mode in self._strategy_identity_modes(strategy_set):
-            normalized = self._normalized_strategy_identity(action_lines, compare_mode=compare_mode)
+            normalized = self._normalized_strategy_identity(
+                action_lines,
+                compare_mode=compare_mode,
+                match_lines=match_lines,
+            )
             if not normalized:
                 continue
             matched_any_non_empty = True
@@ -666,15 +673,27 @@ class DirectPresetService:
         action_lines: list[str] | tuple[str, ...],
         *,
         compare_mode: str,
+        match_lines: list[str] | tuple[str, ...] | None = None,
     ) -> str:
         mode = str(compare_mode or "helpers_stripped").strip().lower()
         lines = [str(line).strip() for line in action_lines if str(line).strip()]
         if mode == "keep_send_syndata":
-            lines = [
-                line
-                for line in lines
-                if not line.strip().lower().startswith("--out-range=")
+            payload_lines = [
+                str(line).strip()
+                for line in (match_lines or ())
+                if str(line).strip().lower().startswith("--payload=")
             ]
+            lines = payload_lines + lines
+        if mode == "keep_send_syndata":
+            normalized_lines: list[str] = []
+            for line in lines:
+                lowered = line.strip().lower()
+                if lowered.startswith("--out-range="):
+                    continue
+                if lowered == "--payload=all":
+                    continue
+                normalized_lines.append(line)
+            lines = normalized_lines
         else:
             lines = self._rules().strip_helper_lines(lines)
         return self._normalize_args(lines)

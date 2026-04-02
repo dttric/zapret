@@ -222,21 +222,6 @@ def bind_page_ui_state(window, page: QWidget | None) -> None:
 
 def connect_lazy_page_signals(window, page_name: PageName, page: QWidget) -> None:
     if page_name == PageName.HOME:
-        for button_attr, handler in (
-            ("start_btn", lambda target=window: start_dpi(target)),
-            ("stop_btn", lambda target=window: stop_dpi(target)),
-            ("test_btn", lambda target=window: open_connection_test(target)),
-            ("folder_btn", lambda target=window: open_folder(target)),
-        ):
-            button = getattr(page, button_attr, None)
-            signal = getattr(button, "clicked", None)
-            if signal is not None:
-                connect_signal_once(
-                    window,
-                    f"home.{button_attr}.clicked",
-                    signal,
-                    handler,
-                )
         if hasattr(page, "premium_link_btn"):
             connect_signal_once(
                 window,

@@ -42,6 +42,10 @@ description = Моя стратегия с паттерном Max TLS ClientHell
 blobs = tls_max
 --lua-desync=fake:blob=tls_max:ip_autottl=-1,3-20:ip6_autottl=-1,3-20:repeats=6:tcp_ack=-66000:seqovl=680:seqovl_pattern=tls_max
 
+[multisplit_complex]
+name = Multisplit Complex
+--lua-desync=multisplit:pos=1,host+2,sld+2,sld+5,sniext+1,sniext+2,endhost-2:seqovl=1
+
 [googlevideo_multidisorder]
 name = MultiDisorder Complex
 --lua-desync=multidisorder:pos=1,host+2,sld+2,sld+5,sniext+1,sniext+2,endhost-2:seqovl=1
@@ -960,6 +964,14 @@ description = Потом опишу подробнее
 --lua-desync=send:repeats=2
 --lua-desync=syndata:blob=stun_pat
 --lua-desync=pktmod:tcp_flags_unset=ack
+
+[send_syndata]
+name = send repeats 2 + syndata (stun)
+author = loop-uh
+label = recommended
+description = Потом опишу подробнее
+--lua-desync=send:repeats=2
+--lua-desync=syndata:blob=stun_pat
 
 [pktmod_syndata]
 name = pktmod + syndata

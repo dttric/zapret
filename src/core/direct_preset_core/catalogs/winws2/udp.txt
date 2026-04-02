@@ -74,15 +74,6 @@ blobs = quic_google
 --payload=all
 --lua-desync=fake:blob=quic_google:repeats=9:ip_autottl=2,3-20:ip6_autottl=2,3-20:payload=all
 
-[ipset_fake_12_n2_apex]
-name = Apex legends & Rockstar v2
-author = community
-label = game
-description = UDP 443+ с ipset-all, 12 повторов, cutoff n2
-blobs = quic_google
---payload=all
---lua-desync=fake:blob=quic_google:repeats=12:ip_autottl=2,3-20:ip6_autottl=2,3-20:payload=all
-
 [ipset_fake_12_n3]
 name = IPSET Fake x12 N3 (Apex legends & Battlefield 6)
 author = community
@@ -331,14 +322,6 @@ description = 2 повтора с fake_quic.bin
 blobs = fake_quic
 --payload=all
 --lua-desync=fake:blob=fake_quic:repeats=2
-
-[fake_4_google_quic]
-name = fake 4 повтора (Google QUIC)
-author = hz
-description = 4 повтора с fake QUIC пакетом Google
-blobs = quic_google
---payload=all
---lua-desync=fake:blob=quic_google:repeats=4
 
 [fake_6_google_quic]
 name = general (alt v2) 1.6.1
