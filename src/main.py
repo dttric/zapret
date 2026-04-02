@@ -2672,6 +2672,10 @@ def main():
 
     def _on_update_found(version: str, release_notes: str) -> None:
         try:
+            try:
+                window.set_status(f"Доступно обновление v{version}")
+            except Exception:
+                pass
             from qfluentwidgets import MessageBox as _MsgBox
             box = _MsgBox(
                 "Доступно обновление",
@@ -2703,6 +2707,10 @@ def main():
 
     def _on_no_update(current_version: str) -> None:
         try:
+            try:
+                window.set_status(f"Обновлений нет, установлена версия {current_version}")
+            except Exception:
+                pass
             from qfluentwidgets import InfoBar as _InfoBar, InfoBarPosition as _IBPos
             _InfoBar.success(
                 title="Обновлений нет",
@@ -2715,6 +2723,10 @@ def main():
             log(f"Ошибка при показе InfoBar: {e}", "❌ ERROR")
 
     def _on_update_check_error(error: str) -> None:
+        try:
+            window.set_status("Не удалось проверить обновления")
+        except Exception:
+            pass
         log(f"Не удалось проверить обновления при запуске: {error}", "⚠️ UPDATE")
 
     _update_bridge.update_found.connect(_on_update_found)
@@ -2743,6 +2755,10 @@ def main():
             if not get_auto_update_enabled():
                 log("Автопроверка обновлений при запуске отключена", "🔁 UPDATE")
                 return
+        except Exception:
+            pass
+        try:
+            window.set_status("Проверка обновлений...")
         except Exception:
             pass
         import threading

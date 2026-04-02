@@ -9,13 +9,11 @@ from PyQt6.QtCore import (
     QTimer,
     QThread,
     pyqtSignal,
-    QEasingCurve,
-    QPropertyAnimation,
     QUrl,
 )
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel,
-    QFrame, QGridLayout, QGraphicsOpacityEffect
+    QFrame, QGridLayout
 )
 from PyQt6.QtGui import QColor, QDesktopServices
 import qtawesome as qta
@@ -305,10 +303,6 @@ class HomePage(BasePage):
         self._autostart_worker = None
         self._ui_state_store = None
         self._ui_state_unsubscribe = None
-        self._home_intro_checked = False
-        self._home_intro_running = False
-        self._home_intro_pending = 0
-        self._home_intro_animations = []
         self._startup_showevent_profile_logged = False
         _t_build = _time.perf_counter()
         self._build_ui()
@@ -325,8 +319,6 @@ class HomePage(BasePage):
         # Не нагружаем самый первый кадр второстепенными действиями.
         QTimer.singleShot(280, self._check_autostart_status)
         QTimer.singleShot(360, self._refresh_strategy_card)
-        if not self._home_intro_checked:
-            QTimer.singleShot(700, self._maybe_play_home_intro)
         if not self._startup_showevent_profile_logged:
             self._startup_showevent_profile_logged = True
             _log_startup_home_metric("showEvent.schedule_deferred", (_time.perf_counter() - _t_show) * 1000)
@@ -533,119 +525,6 @@ class HomePage(BasePage):
         self._build_premium_block()
         _log_startup_home_metric("_build_ui.premium_block", (_time.perf_counter() - _t_premium) * 1000)
         _log_startup_home_metric("_build_ui.total", (_time.perf_counter() - _t_total) * 1000)
-
-    def _maybe_play_home_intro(self) -> None:
-        if self._home_intro_checked or self._home_intro_running:
-            return
-
-        self._home_intro_checked = True
-        self._play_home_intro()
-
-    def _play_home_intro(self) -> None:
-        _t_intro = _time.perf_counter()
-        widgets = [
-            getattr(self, "cards_widget", None),
-            getattr(self, "actions_card", None),
-            getattr(self, "status_card", None),
-            getattr(self, "premium_card", None),
-        ]
-        widgets = [w for w in widgets if isinstance(w, QWidget)]
-        if not widgets:
-            self._finish_home_intro()
-            return
-
-        self._home_intro_running = True
-        self._home_intro_pending = 0
-        self._home_intro_animations = []
-
-        for index, widget in enumerate(widgets):
-            try:
-                effect = widget.graphicsEffect()
-                if not isinstance(effect, QGraphicsOpacityEffect):
-                    effect = QGraphicsOpacityEffect(widget)
-                    widget.setGraphicsEffect(effect)
-                effect.setOpacity(0.26)
-                self._home_intro_pending += 1
-            except Exception:
-                continue
-
-            QTimer.singleShot(index * 120, lambda target=widget: self._animate_home_intro_widget(target))
-
-        if self._home_intro_pending <= 0:
-            self._finish_home_intro()
-        _log_startup_home_metric("intro.setup", (_time.perf_counter() - _t_intro) * 1000)
-
-    def _animate_home_intro_widget(self, widget: QWidget) -> None:
-        effect = widget.graphicsEffect()
-        if not isinstance(effect, QGraphicsOpacityEffect):
-            self._home_intro_pending = max(0, self._home_intro_pending - 1)
-            if self._home_intro_pending == 0:
-                self._finish_home_intro()
-            return
-
-        animation = QPropertyAnimation(effect, b"opacity", self)
-        animation.setDuration(520)
-        animation.setStartValue(float(effect.opacity()))
-        animation.setEndValue(1.0)
-        animation.setEasingCurve(QEasingCurve.Type.OutCubic)
-        self._home_intro_animations.append(animation)
-
-        def _on_finished():
-            try:
-                widget.setGraphicsEffect(None)
-            except Exception:
-                pass
-
-            try:
-                effect.deleteLater()
-            except Exception:
-                pass
-
-            try:
-                self._home_intro_animations.remove(animation)
-            except Exception:
-                pass
-
-            try:
-                animation.deleteLater()
-            except Exception:
-                pass
-
-            self._home_intro_pending = max(0, self._home_intro_pending - 1)
-            if self._home_intro_pending == 0:
-                self._finish_home_intro()
-
-        animation.finished.connect(_on_finished)
-        animation.start()
-
-    def _finish_home_intro(self) -> None:
-        self._home_intro_running = False
-        self._home_intro_pending = 0
-
-        for animation in list(self._home_intro_animations):
-            try:
-                animation.stop()
-                animation.deleteLater()
-            except Exception:
-                pass
-        self._home_intro_animations = []
-
-        for widget in (
-            getattr(self, "cards_widget", None),
-            getattr(self, "actions_card", None),
-            getattr(self, "status_card", None),
-            getattr(self, "premium_card", None),
-        ):
-            if not isinstance(widget, QWidget):
-                continue
-            try:
-                effect = widget.graphicsEffect()
-                if isinstance(effect, QGraphicsOpacityEffect):
-                    effect.setOpacity(1.0)
-                    widget.setGraphicsEffect(None)
-                    effect.deleteLater()
-            except Exception:
-                pass
 
     def _connect_card_signals(self):
         """Подключает клики по карточкам к сигналам навигации"""

@@ -311,6 +311,26 @@ class InitializationManager:
                 except Exception as e:
                     log(f"Ошибка при обновлении UI (fallback): {e}", "❌ ERROR")
 
+    def _handle_startup_dns_status(self, message: str) -> None:
+        """Фильтрует служебные DNS-статусы, чтобы они не выглядели как главный статус приложения."""
+        text = str(message or "").strip()
+        if not text:
+            return
+
+        silent_prefixes = (
+            "DNS будет применен",
+            "⚙️ Принудительный DNS отключен",
+            "⏳ Применение DNS настроек",
+        )
+        if text.startswith(silent_prefixes):
+            log(f"DNS startup status suppressed from main status: {text}", "DEBUG")
+            return
+
+        try:
+            self.app.set_status(text)
+        except Exception:
+            pass
+
     def _init_hostlists_check(self):
         """Фоновая проверка и создание хостлистов (не блокирует GUI)."""
 
@@ -514,7 +534,7 @@ class InitializationManager:
                 )
 
                 # Применяем DNS при запуске (асинхронно)
-                DNSStartupManager.apply_dns_on_startup_async(status_callback=self.app.set_status)
+                DNSStartupManager.apply_dns_on_startup_async(status_callback=self._handle_startup_dns_status)
             
             log(f"✅ Network managers: {(_t.perf_counter() - t0)*1000:.0f}ms", "DEBUG")
             self._log_startup_step("NetworkManagers", f"{(_t.perf_counter() - t0)*1000:.0f}ms")
