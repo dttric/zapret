@@ -278,6 +278,7 @@ def get_all_releases_with_exe() -> List[Dict[str, Any]]:
     - НЕ делает отдельный запрос check_rate_limit()
     - Максимум 2 страницы для dev канала (200 релизов = достаточно)
     """
+    return None
     global _all_releases_cache
     
     # ═══════════════════════════════════════════════════════════
