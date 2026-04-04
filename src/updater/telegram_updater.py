@@ -185,6 +185,7 @@ def get_telegram_version_info(channel: str = 'stable') -> Optional[Dict[str, Any
     Returns:
         Dict с информацией о версии или None
     """
+    return None
     global _telegram_disabled_until
     
     # Проверяем не отключен ли Telegram из-за flood wait

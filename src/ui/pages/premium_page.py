@@ -235,7 +235,7 @@ class PremiumPage(BasePage):
 
         if kind == "normal":
             self.days_label.setText(
-                self._tr("page.premium.days_label.normal", "Осталось дней: {days}", days=days)
+                self._tr("page.premium.days_label.normal", "Осталось дней: Много", days=days)
             )
             self.days_label.setStyleSheet(f"color: {semantic.success};")
             return

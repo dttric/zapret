@@ -41,7 +41,8 @@ def _get_token() -> str:
 
 GITHUB_UPDATE_1 = _get_token()
 
-GITHUB_API_URL = "https://api.github.com/repos/youtubediscord/zapret/releases"
+# GITHUB_API_URL = "https://api.github.com/repos/youtubediscord/zapret/releases"
+GITHUB_API_URL = "https://localhost/disabled"
 TIMEOUT = 10  # сек.
 
 # Кэш для GitHub запросов

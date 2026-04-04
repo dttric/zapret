@@ -112,7 +112,7 @@ class PremiumService:
         with self._lock:
             return ActivationStatus(
                 is_activated=True,
-                days_remaining=3650,
+                days_remaining=9999,
                 expires_at=None,
                 status_message="Премиум-подписка активирована",
                 is_linked=True,

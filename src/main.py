@@ -794,7 +794,7 @@ class LupiDPIApp(ZapretFluentWindow, MainWindowUI, ThemeSubscriptionManager):
 
         # FluentWindow handles: frameless, titlebar, acrylic, resize, drag
         # We only need to set title and restore geometry
-        self.setWindowTitle(f"Zapret2 v{APP_VERSION}")
+        self.setWindowTitle(f"Zapret PP")
         self.setMinimumSize(MIN_WIDTH, 400)
         self.window_close_controller = WindowCloseController(self)
         self.window_geometry_controller = WindowGeometryController(
