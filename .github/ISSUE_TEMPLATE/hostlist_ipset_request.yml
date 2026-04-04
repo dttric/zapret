@@ -2,6 +2,7 @@ name: "Заявка на добавление hostlist/ipset"
 description: "Запросить добавление новых доменов или IP-адресов в списки"
 title: "[Hostlist/IPset]: "
 labels: ["hostlist/ipset"]
+type: "hostlist / ipset"
 body:
   - type: markdown
     attributes:
