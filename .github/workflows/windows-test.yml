@@ -1,10 +1,10 @@
-name: Artifact build
+name: Release
 
 on:
   push:
     branches: [main]
     tags:
-      - "test"
+      - 'v*'
   workflow_dispatch:
 
 jobs:
@@ -51,34 +51,13 @@ jobs:
       - name: Build EXE
         run: |
           cd src
-          python -m PyInstaller --noconfirm --name Zapret --uac-admin --onedir --paths . main.py
+          python -m PyInstaller --noconfirm --name Zapret --uac-admin --onedir --console --paths . main.py
           echo "Build complete"
           dir dist\Zapret\Zapret.exe
 
-      - name: Prepare release artifact
-        run: |
-          cd src/dist/Zapret
-          7z a ../../Zapret-build.zip *
-        shell: cmd
-
-      - name: Create Release
-        id: create_release
-        uses: actions/create-release@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
         with:
-          tag_name: ${{ github.ref }}
-          release_name: Release ${{ github.ref }}
-          draft: false
-          prerelease: false
-
-      - name: Upload Release Asset
-        id: upload-release-asset 
-        uses: actions/upload-release-asset@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          upload_url: ${{ steps.create_release.outputs.upload_url }}
-          asset_path: src/dist/Zapret-build.zip
-          asset_name: Zapret.zip
-          asset_content_type: application/zip
+          name: Zapret-${{ github.sha }}
+          path: src/dist/Zapret/
+          retention-days: 30

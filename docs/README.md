@@ -1,3 +1,8 @@
+> [!IMPORTANT]  
+> ## Zapret PP - Portable Premium
+> Это форк Zapret 2 GUI Censorliber-a с бесплатным премиумом!
+> Причем тут Portable? Мне лень делать инсталлер.
+
 <h1 align="center"><img width="30" alt="image" src="https://github.com/user-attachments/assets/a9865f26-a61d-444f-8f6c-d186e5e21973" /><a href="https://github.com/bol-van/zapret2">Zapret 2</a> (Запрет: обход блокировки Дискорда и Ютуба) </h1>
 
 ### Документация доступна здесь https://publish.obsidian.md/zapret

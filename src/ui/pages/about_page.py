@@ -429,11 +429,11 @@ class AboutPage(BasePage):
 
         if _HAS_FLUENT:
             self.sub_status_label = StrongBodyLabel(
-                tr_catalog("page.about.subscription.free", language=self._ui_language, default="Free версия")
+                tr_catalog("page.about.subscription.free", language=self._ui_language, default="Freemium")
             )
         else:
             self.sub_status_label = QLabel(
-                tr_catalog("page.about.subscription.free", language=self._ui_language, default="Free версия")
+                tr_catalog("page.about.subscription.free", language=self._ui_language, default="Freemium")
             )
             self.sub_status_label.setStyleSheet(f"color: {tokens.fg}; font-size: 13px; font-weight: 500;")
         sub_status_layout.addWidget(self.sub_status_label, 1)
@@ -444,7 +444,7 @@ class AboutPage(BasePage):
                 tr_catalog(
                     "page.about.subscription.desc",
                     language=self._ui_language,
-                    default="Подписка Zapret Premium открывает доступ к дополнительным темам, приоритетной поддержке и VPN-сервису.",
+                    default="Несмотря на то что здесь предусмотрен вечный Premium, я всё же рекомендую вам приобрести его в оригинальной программе с более стабильными обновлениями. Так вы поддержите автора оригинала",
                 )
             )
         else:
@@ -452,7 +452,7 @@ class AboutPage(BasePage):
                 tr_catalog(
                     "page.about.subscription.desc",
                     language=self._ui_language,
-                    default="Подписка Zapret Premium открывает доступ к дополнительным темам, приоритетной поддержке и VPN-сервису.",
+                    default="Несмотря на то что здесь предусмотрен вечный Premium, я всё же рекомендую вам приобрести его в оригинальной программе с более стабильными обновлениями. Так вы поддержите автора оригинала",
                 )
             )
             self.sub_desc_label.setStyleSheet(f"color: {tokens.fg_muted}; font-size: 11px;")
@@ -462,7 +462,7 @@ class AboutPage(BasePage):
         sub_btns = QHBoxLayout()
         sub_btns.setSpacing(8)
         self.premium_btn = ActionButton(
-            tr_catalog("page.about.button.premium_vpn", language=self._ui_language, default="Premium и VPN"),
+            tr_catalog("page.about.button.premium_vpn", language=self._ui_language, default="Купить Premium и VPN у Либера"),
             "fa5s.star",
             accent=True,
         )
@@ -498,7 +498,7 @@ class AboutPage(BasePage):
                     tr_catalog(
                         "page.about.subscription.premium_days",
                         language=self._ui_language,
-                        default="Premium (осталось {days} дней)",
+                        default="Freemium (осталось - дней)",
                     ).format(days=days)
                 )
             else:
@@ -506,13 +506,13 @@ class AboutPage(BasePage):
                     tr_catalog(
                         "page.about.subscription.premium_active",
                         language=self._ui_language,
-                        default="Premium активен",
+                        default="Freemium активен",
                     )
                 )
         else:
             self.sub_status_icon.setPixmap(qta.icon('fa5s.user', color=tokens.fg_faint).pixmap(18, 18))
             self.sub_status_label.setText(
-                tr_catalog("page.about.subscription.free", language=self._ui_language, default="Free версия")
+                tr_catalog("page.about.subscription.free", language=self._ui_language, default="Freemium версия")
             )
 
     # ─────────────────────────────────────────────────────────────────────────
