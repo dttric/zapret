@@ -2,6 +2,7 @@ name: "Баг-репорт"
 description: "Сообщить об ошибке в работе Zapret GUI"
 title: "[Баг]: "
 labels: ["bug"]
+type: "bug"
 body:
   - type: markdown
     attributes:
